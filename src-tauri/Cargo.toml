@@ -1,7 +1,7 @@
 [package]
-name = "ssh-manager"
+name = "ori-sshmanager"
 version = "1.0.0"
-description = "SSH Manager - Desktop SSH Session Manager"
+description = "ORI-SSHManager - Desktop SSH Session Manager"
 authors = ["You"]
 license = "MIT"
 repository = ""

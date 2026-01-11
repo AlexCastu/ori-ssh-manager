@@ -7,7 +7,7 @@ export function Logo({ className = '', size = 32 }: LogoProps) {
   return (
     <img
       src="/logo.png"
-      alt="SSH Manager"
+      alt="ORI-SSHManager"
       width={size}
       height={size}
       className={`rounded-lg ${className}`}

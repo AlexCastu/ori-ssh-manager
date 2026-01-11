@@ -326,7 +326,7 @@ export function SettingsModal() {
 
           {/* Version Info */}
           <div className={`mt-6 flex items-center justify-between border-t pt-4 ${isDark ? 'border-white/10' : 'border-zinc-200'}`}>
-            <span className={`text-xs ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>SSH Manager v1.0.0</span>
+            <span className={`text-xs ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>ORI-SSHManager v1.0.0</span>
             <span className={`text-xs ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>Alex Constantin Castu ❤️</span>
           </div>
         </motion.div>

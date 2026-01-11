@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "SSH Manager",
+  "productName": "ORI-SSHManager",
   "version": "1.0.0",
-  "identifier": "com.ori.repomanager",
+  "identifier": "com.ori.sshmanager",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5175",
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "SSH Manager v2.0",
+        "title": "ORI-SSHManager",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
@@ -45,8 +45,8 @@
         "type": "embedBootstrapper"
       }
     },
-    "shortDescription": "Gestión de repositorios Git",
-    "longDescription": "SSH Manager - Una herramienta moderna para gestionar múltiples entornos y repositorios Git",
+    "shortDescription": "Gestor SSH ORI",
+    "longDescription": "ORI-SSHManager - Una herramienta moderna para gestionar múltiples entornos y repositorios SSH",
     "copyright": "© 2026 Alex Constantin Castu (ORI)"
   }
 }

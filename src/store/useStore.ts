@@ -455,7 +455,7 @@ export const useStore = create<AppStore>()(
   },
 }),
     {
-      name: 'ssh-manager-storage',
+      name: 'ori-sshmanager-storage',
       partialize: (state) => ({
         groups: state.groups,
         settings: state.settings,

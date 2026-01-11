@@ -1,4 +1,4 @@
-//! Database module for SSH Manager
+//! Database module for ORI-SSHManager
 
 use aes_gcm::{aead::{Aead, KeyInit, OsRng}, Aes256Gcm, Key, Nonce};
 use base64::{engine::general_purpose, Engine as _};

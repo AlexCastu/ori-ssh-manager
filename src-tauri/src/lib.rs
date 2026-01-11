@@ -1,4 +1,4 @@
-//! SSH Manager - Tauri Application Entry Point
+//! ORI-SSHManager - Tauri Application Entry Point
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

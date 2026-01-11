@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "SSH Manager default permissions",
+  "description": "ORI-SSHManager default permissions",
   "windows": [
     "main"
   ],

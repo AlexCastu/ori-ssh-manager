@@ -86,7 +86,7 @@ export function TitleBar({ className = '' }: TitleBarProps) {
           <Logo size={26} />
           <div className="flex items-center gap-2.5" data-tauri-drag-region>
             <span className={`text-sm font-semibold tracking-tight ${isDark ? 'text-white' : 'text-zinc-900'}`} data-tauri-drag-region>
-              SSH Manager
+              ORI-SSHManager
             </span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
               isDark

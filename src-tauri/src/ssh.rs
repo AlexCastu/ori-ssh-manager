@@ -1,4 +1,4 @@
-//! SSH Connection module for SSH Manager using PTY with Tauri events
+//! SSH Connection module for ORI-SSHManager using PTY with Tauri events
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;

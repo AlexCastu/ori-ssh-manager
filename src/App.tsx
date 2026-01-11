@@ -33,7 +33,7 @@ function App() {
           }`}>
             <Terminal className={`w-6 h-6 animate-pulse ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
           </div>
-          <p className={`text-sm ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>Loading SSH Manager...</p>
+          <p className={`text-sm ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>Loading ORI-SSHManager...</p>
         </div>
       </div>
     );

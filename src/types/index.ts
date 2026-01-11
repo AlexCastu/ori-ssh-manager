@@ -1,4 +1,4 @@
-// Types for SSH Manager
+// Types for ORI-SSHManager
 
 // ==================== DATABASE TYPES ====================
 
