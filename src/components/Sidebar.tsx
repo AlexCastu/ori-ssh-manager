@@ -66,9 +66,14 @@ function DropdownPortal({
   useEffect(() => {
     if (isOpen && anchorRef.current) {
       const rect = anchorRef.current.getBoundingClientRect();
+      const dropdownWidth = 180;
+      const viewportPadding = 12;
       setPosition({
         top: rect.bottom + 4,
-        left: Math.min(rect.right - 140, window.innerWidth - 160), // Ensure it doesn't go off screen
+        left: Math.min(
+          Math.max(rect.left, viewportPadding),
+          window.innerWidth - dropdownWidth - viewportPadding
+        ), // Clamp within viewport so it never clips to the left
       });
     }
   }, [isOpen, anchorRef]);
