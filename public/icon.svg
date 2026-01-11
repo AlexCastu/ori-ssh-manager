@@ -1,0 +1,19 @@
+<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gradBlue" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#005cbf;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#002a5c;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="120" fill="url(#gradBlue)" />
+
+  <rect x="70" y="70" width="372" height="372" rx="50" fill="none" stroke="white" stroke-width="15" opacity="0.8" />
+
+  <text x="50%" y="45%" dominant-baseline="middle" text-anchor="middle" font-family="Verdana, sans-serif" font-weight="900" font-size="160" fill="white">
+    ORI
+  </text>
+  <text x="50%" y="72%" dominant-baseline="middle" text-anchor="middle" font-family="Verdana, sans-serif" font-weight="bold" font-size="100" fill="white">
+    RM
+  </text>
+</svg>
