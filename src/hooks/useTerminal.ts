@@ -109,8 +109,6 @@ export function useTerminal(options: UseTerminalOptions = {}) {
       disableStdin: false,
       allowProposedApi: true,
       convertEol: true,
-      wordWrap: true,
-      padding: 8,
     });
 
     const fitAddon = new FitAddon();
