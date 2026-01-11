@@ -53,28 +53,28 @@ impl SshManager {
 
     fn create_session(host: &str, port: u16, username: &str, password: &str) -> Result<(Session, TcpStream), SshError> {
         log::info!("Creating SSH session to {}@{}:{}", username, host, port);
-        
+
         let tcp = TcpStream::connect_timeout(
             &format!("{}:{}", host, port).parse().map_err(|e| {
                 SshError::ConnectionFailed(format!("Invalid address: {}", e))
             })?,
             Duration::from_secs(30),
         ).map_err(|e| SshError::ConnectionFailed(format!("TCP connect failed: {}", e)))?;
-        
+
         tcp.set_read_timeout(Some(Duration::from_secs(30))).ok();
         tcp.set_write_timeout(Some(Duration::from_secs(30))).ok();
         tcp.set_nodelay(true).ok();
 
         let mut session = Session::new()
             .map_err(|e| SshError::ConnectionFailed(format!("Failed to create SSH session: {}", e)))?;
-        
+
         session.set_tcp_stream(tcp.try_clone().map_err(|e| {
             SshError::ConnectionFailed(format!("Failed to clone TCP stream: {}", e))
         })?);
-        
+
         session.handshake()
             .map_err(|e| SshError::ConnectionFailed(format!("SSH handshake failed: {}", e)))?;
-        
+
         session.userauth_password(username, password)
             .map_err(|e| SshError::ConnectionFailed(format!("Authentication failed: {}", e)))?;
 
@@ -102,7 +102,7 @@ impl SshManager {
     ) -> Result<String, SshError> {
         let initial_cols = cols.unwrap_or(80);
         let initial_rows = rows.unwrap_or(24);
-        
+
         log::info!(
             "Attempting SSH connection to {}@{}:{} ({}x{})",
             username, host, port, initial_cols, initial_rows
@@ -122,7 +122,7 @@ impl SshManager {
             // Create a shell session on the jump host
             let mut shell_channel = jump_sess.channel_session()
                 .map_err(|e| SshError::ConnectionFailed(format!("Jump shell channel failed: {}", e)))?;
-            
+
             // Request PTY for the jump session
             shell_channel.request_pty("xterm-256color", None, Some((
                 initial_cols as u32,
@@ -130,14 +130,14 @@ impl SshManager {
                 0,
                 0,
             ))).map_err(|e| SshError::ConnectionFailed(format!("Jump PTY request failed: {}", e)))?;
-            
+
             // Start shell on jump host
             shell_channel.shell()
                 .map_err(|e| SshError::ConnectionFailed(format!("Jump shell start failed: {}", e)))?;
-            
+
             // Wait for shell to initialize
             std::thread::sleep(std::time::Duration::from_millis(500));
-            
+
             // Now send SSH command to connect to the final destination
             let ssh_command = format!(
                 "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {} {}@{}\n",
@@ -147,16 +147,16 @@ impl SshManager {
                 .map_err(|e| SshError::ConnectionFailed(format!("SSH command send failed: {}", e)))?;
             shell_channel.flush()
                 .map_err(|e| SshError::ConnectionFailed(format!("SSH command flush failed: {}", e)))?;
-            
+
             // Wait for SSH to prompt for password
             std::thread::sleep(std::time::Duration::from_millis(1500));
-            
+
             // Send password
             shell_channel.write_all(format!("{}\n", password).as_bytes())
                 .map_err(|e| SshError::ConnectionFailed(format!("Password send failed: {}", e)))?;
             shell_channel.flush()
                 .map_err(|e| SshError::ConnectionFailed(format!("Password flush failed: {}", e)))?;
-            
+
             // Wait for connection to establish
             std::thread::sleep(std::time::Duration::from_millis(1000));
 
@@ -194,7 +194,7 @@ impl SshManager {
                                 let locked = channel_clone.lock().unwrap();
                                 locked.channel.eof()
                             };
-                            
+
                             if is_eof {
                                 log::info!("SSH channel EOF for {}", channel_id_clone);
                                 *connected_clone.lock().unwrap() = false;
@@ -296,7 +296,7 @@ impl SshManager {
                             let locked = channel_clone.lock().unwrap();
                             locked.channel.eof()
                         };
-                        
+
                         if is_eof {
                             log::info!("SSH channel EOF for {}", channel_id_clone);
                             *connected_clone.lock().unwrap() = false;
@@ -407,13 +407,13 @@ impl SshManager {
         if let Some(ssh) = channels.remove(channel_id) {
             // Mark as disconnected to stop reader thread
             *ssh.is_connected.lock().unwrap() = false;
-            
+
             // Try to close gracefully
             {
                 let session = ssh.session.lock().unwrap();
                 session.set_blocking(true);
             }
-            
+
             {
                 let mut channel = ssh.channel.lock().unwrap();
                 let _ = channel.channel.write_all(b"exit\n");
@@ -421,7 +421,7 @@ impl SshManager {
                 let _ = channel.channel.send_eof();
                 let _ = channel.channel.wait_close();
             }
-            
+
             log::info!("SSH session {} disconnected", channel_id);
         }
         Ok(())
