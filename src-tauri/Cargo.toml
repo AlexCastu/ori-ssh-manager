@@ -25,12 +25,11 @@ tauri-plugin-shell = "2"
 chrono = "0.4"
 dirs = "5"
 
-# SSH dependencies - using sshpass via command with PTY
+# SSH dependencies - native cross-platform (no external binaries)
 rusqlite = { version = "0.30", features = ["bundled", "chrono"] }
 uuid = { version = "1.0", features = ["v4"] }
 thiserror = "1.0"
-libc = "0.2"
-portable-pty = "0.8"
+ssh2 = "0.9"
 aes-gcm = { version = "0.10", features = ["std"] }
 base64 = "0.22"
 rand_core = "0.6"
