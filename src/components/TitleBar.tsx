@@ -23,7 +23,7 @@ export function TitleBar({ className = '' }: TitleBarProps) {
     const platform = navigator.platform.toLowerCase();
     const isMac = platform.includes('mac');
     setIsMacOS(isMac);
-    
+
     // On Windows/Linux, don't render this component at all
     if (!isMac) return;
 
