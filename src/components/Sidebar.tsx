@@ -13,6 +13,7 @@ import {
   FolderOpen,
   MoreVertical,
   FolderInput,
+  Settings,
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../contexts/ThemeContext';
@@ -567,6 +568,7 @@ export function Sidebar() {
     sidebarCollapsed,
     toggleSidebar,
     openSessionModal,
+    openSettingsModal,
     createTab,
     addGroup,
     updateGroup,
@@ -911,6 +913,24 @@ export function Sidebar() {
             )}
           </div>
         )}
+      </div>
+
+      {/* Settings button at bottom */}
+      <div className={`p-3 border-t ${isDark ? 'border-zinc-800/50' : 'border-zinc-200'}`}>
+        <button
+          onClick={() => openSettingsModal()}
+          className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+            isDark
+              ? 'hover:bg-zinc-800 text-zinc-400 hover:text-white'
+              : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900'
+          }`}
+          title="Configuración"
+        >
+          <Settings className="w-5 h-5" />
+          {!sidebarCollapsed && (
+            <span className="text-sm font-medium">Configuración</span>
+          )}
+        </button>
       </div>
     </motion.aside>
   );

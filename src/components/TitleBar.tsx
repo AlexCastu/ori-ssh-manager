@@ -1,40 +1,36 @@
 import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { motion } from 'framer-motion';
-import { Minus, Square, X, Maximize2, Settings } from 'lucide-react';
 import { Logo } from './Logo';
-import { useStore } from '../store/useStore';
 import { useTheme } from '../contexts/ThemeContext';
+
+// Helper to check platform
+export function isMacOSPlatform(): boolean {
+  if (typeof navigator !== 'undefined') {
+    return navigator.platform.toLowerCase().includes('mac');
+  }
+  return false;
+}
 
 interface TitleBarProps {
   className?: string;
 }
 
 export function TitleBar({ className = '' }: TitleBarProps) {
-  const [isMaximized, setIsMaximized] = useState(false);
   const [isMacOS, setIsMacOS] = useState(false);
-  const { openSettingsModal } = useStore();
   const { isDark } = useTheme();
 
   useEffect(() => {
     const platform = navigator.platform.toLowerCase();
-    setIsMacOS(platform.includes('mac'));
+    const isMac = platform.includes('mac');
+    setIsMacOS(isMac);
+    
+    // On Windows/Linux, don't render this component at all
+    if (!isMac) return;
 
-    const checkMaximized = async () => {
-      try {
-        const appWindow = getCurrentWindow();
-        const maximized = await appWindow.isMaximized();
-        setIsMaximized(maximized);
-      } catch (error) {
-        console.warn('Could not check maximized state:', error);
-      }
-    };
-
-    checkMaximized();
-
+    // Set up resize listener for macOS
     const appWindow = getCurrentWindow();
     const unlisten = appWindow.onResized(() => {
-      checkMaximized();
+      // Keep listener for potential future use
     });
 
     return () => {
@@ -42,32 +38,10 @@ export function TitleBar({ className = '' }: TitleBarProps) {
     };
   }, []);
 
-  const handleMinimize = async () => {
-    try {
-      const appWindow = getCurrentWindow();
-      await appWindow.minimize();
-    } catch (error) {
-      console.error('Failed to minimize:', error);
-    }
-  };
-
-  const handleMaximize = async () => {
-    try {
-      const appWindow = getCurrentWindow();
-      await appWindow.toggleMaximize();
-    } catch (error) {
-      console.error('Failed to toggle maximize:', error);
-    }
-  };
-
-  const handleClose = async () => {
-    try {
-      const appWindow = getCurrentWindow();
-      await appWindow.close();
-    } catch (error) {
-      console.error('Failed to close:', error);
-    }
-  };
+  // Don't render on Windows/Linux - they use native decorations
+  if (!isMacOS) {
+    return null;
+  }
 
   return (
     <div
@@ -99,64 +73,8 @@ export function TitleBar({ className = '' }: TitleBarProps) {
         </div>
       </div>
 
-      {/* Right side - Settings and window controls */}
-      <div className="flex items-center gap-1 pr-3" data-tauri-drag-region>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => openSettingsModal()}
-          className={`p-2 rounded-lg transition-colors ${
-            isDark
-              ? 'hover:bg-zinc-800 text-zinc-400 hover:text-white'
-              : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900'
-          }`}
-          title="Settings"
-        >
-          <Settings className="w-4 h-4" />
-        </motion.button>
-
-        {!isMacOS && (
-          <div className="flex items-center ml-2 gap-0.5">
-            <motion.button
-              whileHover={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleMinimize}
-              className={`p-2 rounded transition-colors ${
-                isDark ? 'text-zinc-400 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'
-              }`}
-              title="Minimize"
-            >
-              <Minus className="w-4 h-4" />
-            </motion.button>
-            <motion.button
-              whileHover={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleMaximize}
-              className={`p-2 rounded transition-colors ${
-                isDark ? 'text-zinc-400 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'
-              }`}
-              title={isMaximized ? 'Restore' : 'Maximize'}
-            >
-              {isMaximized ? (
-                <Square className="w-3.5 h-3.5" />
-              ) : (
-                <Maximize2 className="w-4 h-4" />
-              )}
-            </motion.button>
-            <motion.button
-              whileHover={{ backgroundColor: 'rgba(239,68,68,0.2)' }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleClose}
-              className={`p-2 rounded transition-colors ${
-                isDark ? 'text-zinc-400' : 'text-zinc-500'
-              } hover:text-red-400`}
-              title="Close"
-            >
-              <X className="w-4 h-4" />
-            </motion.button>
-          </div>
-        )}
-      </div>
+      {/* Right side - empty spacer for symmetry */}
+      <div className="w-4" data-tauri-drag-region />
     </div>
   );
 }
