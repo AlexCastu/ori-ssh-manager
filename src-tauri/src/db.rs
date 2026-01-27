@@ -19,7 +19,13 @@ pub struct Session {
     pub host: String,
     pub port: i32,
     pub username: String,
+    #[serde(rename = "authMethod")]
+    pub auth_method: String, // "password" or "key"
     pub password: Option<String>,
+    #[serde(rename = "privateKeyPath")]
+    pub private_key_path: Option<String>,
+    #[serde(rename = "privateKeyPassphrase")]
+    pub private_key_passphrase: Option<String>,
     #[serde(rename = "jumpHost")]
     pub jump_host: Option<String>,
     #[serde(rename = "jumpPort")]
@@ -71,7 +77,10 @@ impl Database {
                 host TEXT NOT NULL,
                 port INTEGER NOT NULL DEFAULT 22,
                 username TEXT NOT NULL,
+                auth_method TEXT NOT NULL DEFAULT 'password',
                 password TEXT,
+                private_key_path TEXT,
+                private_key_passphrase TEXT,
                 jump_host TEXT,
                 jump_port INTEGER,
                 jump_username TEXT,
@@ -83,6 +92,7 @@ impl Database {
             [],
         )?;
 
+        // Migration: add group_id if missing
         let has_group_id: bool = conn
             .prepare("SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name='group_id'")?
             .query_row([], |row| row.get::<_, i32>(0))
@@ -90,6 +100,18 @@ impl Database {
             .unwrap_or(false);
         if !has_group_id {
             conn.execute("ALTER TABLE sessions ADD COLUMN group_id TEXT", [])?;
+        }
+
+        // Migration: add auth_method if missing
+        let has_auth_method: bool = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name='auth_method'")?
+            .query_row([], |row| row.get::<_, i32>(0))
+            .map(|count| count > 0)
+            .unwrap_or(false);
+        if !has_auth_method {
+            conn.execute("ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'", [])?;
+            conn.execute("ALTER TABLE sessions ADD COLUMN private_key_path TEXT", [])?;
+            conn.execute("ALTER TABLE sessions ADD COLUMN private_key_passphrase TEXT", [])?;
         }
 
         conn.execute(
@@ -162,13 +184,15 @@ impl Database {
     pub fn get_sessions(&self) -> SqliteResult<Vec<Session>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, host, port, username, password, jump_host, jump_port,
-             jump_username, jump_password, color, group_id, created_at FROM sessions ORDER BY name"
+            "SELECT id, name, host, port, username, auth_method, password, private_key_path,
+             private_key_passphrase, jump_host, jump_port, jump_username, jump_password,
+             color, group_id, created_at FROM sessions ORDER BY name"
         )?;
 
         let rows = stmt.query_map([], |row| {
-            let enc_password: Option<String> = row.get(5)?;
-            let enc_jump_password: Option<String> = row.get(9)?;
+            let enc_password: Option<String> = row.get(6)?;
+            let enc_key_passphrase: Option<String> = row.get(8)?;
+            let enc_jump_password: Option<String> = row.get(12)?;
 
             Ok(Session {
                 id: row.get(0)?,
@@ -176,16 +200,20 @@ impl Database {
                 host: row.get(2)?,
                 port: row.get(3)?,
                 username: row.get(4)?,
+                auth_method: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "password".to_string()),
                 password: None,
-                jump_host: row.get(6)?,
-                jump_port: row.get(7)?,
-                jump_username: row.get(8)?,
+                private_key_path: row.get(7)?,
+                private_key_passphrase: None,
+                jump_host: row.get(9)?,
+                jump_port: row.get(10)?,
+                jump_username: row.get(11)?,
                 jump_password: None,
-                color: row.get(10)?,
-                group_id: row.get(11)?,
-                created_at: row.get(12)?,
+                color: row.get(13)?,
+                group_id: row.get(14)?,
+                created_at: row.get(15)?,
             }).map(|mut session| {
                 session.password = self.decrypt(&enc_password).unwrap_or(None);
+                session.private_key_passphrase = self.decrypt(&enc_key_passphrase).unwrap_or(None);
                 session.jump_password = self.decrypt(&enc_jump_password).unwrap_or(None);
                 session
             })
@@ -200,22 +228,30 @@ impl Database {
             Some(pwd) => Some(self.encrypt(pwd)?),
             None => None,
         };
+        let enc_key_passphrase = match &session.private_key_passphrase {
+            Some(pwd) => Some(self.encrypt(pwd)?),
+            None => None,
+        };
         let enc_jump_password = match &session.jump_password {
             Some(pwd) => Some(self.encrypt(pwd)?),
             None => None,
         };
         conn.execute(
             "INSERT OR REPLACE INTO sessions
-             (id, name, host, port, username, password, jump_host, jump_port,
-              jump_username, jump_password, color, group_id, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             (id, name, host, port, username, auth_method, password, private_key_path,
+              private_key_passphrase, jump_host, jump_port, jump_username, jump_password,
+              color, group_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 session.id,
                 session.name,
                 session.host,
                 session.port,
                 session.username,
+                session.auth_method,
                 enc_password,
+                session.private_key_path,
+                enc_key_passphrase,
                 session.jump_host,
                 session.jump_port,
                 session.jump_username,

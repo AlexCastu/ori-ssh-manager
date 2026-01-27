@@ -1,23 +1,9 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { Terminal, X } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { useTheme } from '../contexts/ThemeContext';
-import type { SessionColor } from '../types';
-
-const colorDots: Record<SessionColor, string> = {
-  blue: 'bg-blue-500',
-  green: 'bg-green-500',
-  purple: 'bg-purple-500',
-  orange: 'bg-orange-500',
-  red: 'bg-red-500',
-  cyan: 'bg-cyan-500',
-  pink: 'bg-pink-500',
-  yellow: 'bg-yellow-500',
-};
 
 export function TabBar() {
   const { tabs, activeTabId, sessions, setActiveTab, closeTab } = useStore();
-  const { isDark } = useTheme();
 
   const getSessionForTab = (sessionId: string) => {
     return sessions.find((s) => s.id === sessionId);
@@ -39,11 +25,7 @@ export function TabBar() {
   }
 
   return (
-    <div className={`flex items-center gap-1 px-2 py-1 border-b overflow-x-auto whitespace-nowrap transition-colors ${
-      isDark
-        ? 'bg-zinc-900/50 border-white/5'
-        : 'bg-zinc-50 border-zinc-200'
-    }`}>
+    <div className="flex items-center gap-1 px-2 py-1 bg-zinc-900/50 border-b border-white/5 overflow-x-auto">
       <AnimatePresence mode="popLayout">
         {tabs.map((tab) => {
           const session = getSessionForTab(tab.sessionId);
@@ -61,44 +43,25 @@ export function TabBar() {
                 group flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm
                 transition-colors min-w-[120px] max-w-[200px]
                 ${isActive
-                  ? isDark ? 'bg-white/10 text-white' : 'bg-zinc-200 text-zinc-900'
-                  : isDark ? 'text-zinc-400 hover:text-white hover:bg-white/5' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'
+                  ? 'bg-white/10 text-white'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/5'
                 }
               `}
             >
               <div className={`w-2 h-2 rounded-full ${statusDot(tab.status)}`} />
-              <div
-                className={`w-2.5 h-2.5 rounded-sm border ${
-                  session?.color ? colorDots[session.color] : 'bg-zinc-400'
-                } ${isDark ? 'border-white/20' : 'border-black/10'}`}
-                title={session?.color ? `Color: ${session.color}` : 'Sin color'}
-              />
-              <Terminal className={`w-3.5 h-3.5 flex-shrink-0 ${isDark ? 'text-zinc-300' : 'text-zinc-600'}`} />
-              <span
-                className="truncate flex-1 text-left"
-                title={session?.name || 'Unknown'}
-              >
+              <Terminal className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="truncate flex-1 text-left">
                 {session?.name || 'Unknown'}
               </span>
-              <div
-                role="button"
-                tabIndex={0}
+              <button
                 onClick={(e) => {
                   e.stopPropagation();
                   closeTab(tab.id);
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    closeTab(tab.id);
-                  }
-                }}
-                className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-all cursor-pointer ${
-                  isDark ? 'hover:bg-white/10' : 'hover:bg-zinc-300'
-                }`}
+                className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all"
               >
                 <X className="w-3 h-3" />
-              </div>
+              </button>
             </motion.button>
           );
         })}

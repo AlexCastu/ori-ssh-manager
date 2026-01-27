@@ -85,6 +85,7 @@ export const useStore = create<AppStore>()(
       addSession: async (sessionData) => {
         const session: Session = {
           ...sessionData,
+          authMethod: sessionData.authMethod || 'password',
           id: generateId(),
           createdAt: new Date().toISOString(),
         };

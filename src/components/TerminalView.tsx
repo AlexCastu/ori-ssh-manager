@@ -2,47 +2,55 @@ import { useEffect, useRef, useCallback } from 'react';
 import { X, Circle, RefreshCw, StopCircle, Copy, ClipboardList } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTerminal } from '../hooks/useTerminal';
-import { useSSHConnection } from '../hooks/useSSHConnection';
+import { sshService } from '../hooks/sshService';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface TerminalViewProps {
   tabId: string;
 }
 
+// Max buffer size: 500KB to prevent memory issues on long sessions
+const MAX_BUFFER_SIZE = 500 * 1024;
+
+// Trim buffer keeping only the last portion when it exceeds max size
+function trimBuffer(buffer: string, maxSize: number): string {
+  if (buffer.length <= maxSize) return buffer;
+  // Keep the last 80% of max size to avoid frequent trimming
+  const keepSize = Math.floor(maxSize * 0.8);
+  return buffer.slice(-keepSize);
+}
+
 export function TerminalView({ tabId }: TerminalViewProps) {
   const { tabs, sessions, closeTab, updateTabStatus, settings, addToast, getTabBuffer, setTabBuffer } = useStore();
   const { isDark } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
-  const hasConnectedRef = useRef(false); // Track if we've already connected this tab
+  const hasConnectedRef = useRef(false);
   const currentChannelRef = useRef<string | null>(null);
   const bufferRef = useRef('');
-  const { connect, send, resize, startReading, stopReading, disconnect } = useSSHConnection();
 
   const tab = tabs.find((t) => t.id === tabId);
   const session = sessions.find((s) => s.id === tab?.sessionId);
 
-  // Get terminal background based on theme setting
   const terminalBackground = settings?.terminalTheme === 'nord-light' ? '#eceff4' : '#2e3440';
 
   const handleData = useCallback(
     (data: string) => {
       if (tab?.channelId) {
-        send(tab.channelId, data);
+        sshService.send(tab.channelId, data);
       }
     },
-    [tab?.channelId, send]
+    [tab?.channelId]
   );
 
-  // Handle terminal resize and sync with PTY
   const handleResize = useCallback(
     (cols: number, rows: number) => {
       if (!tab?.channelId) return;
       if (tab.status !== 'connected') return;
-      resize(tab.channelId, cols, rows).catch((err) => {
+      sshService.resize(tab.channelId, cols, rows).catch((err) => {
         console.error('Resize failed', { tabId, channelId: tab.channelId, cols, rows, err });
       });
     },
-    [tab?.channelId, tab?.status, resize, tabId]
+    [tab?.channelId, tab?.status, tabId]
   );
 
   const { initTerminal, write, writeln, focus, fit, getSize, getBufferText, getLastBlock, scrollToBottom } = useTerminal({
@@ -50,13 +58,11 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     onResize: handleResize,
   });
 
-  // Initialize terminal and connect or reattach
   useEffect(() => {
     if (!containerRef.current || !session || !tab) return;
 
     const cleanup = initTerminal(containerRef.current);
 
-    // Restore previous buffer if present (includes ANSI colors)
     const previousBuffer = getTabBuffer(tabId);
     if (previousBuffer) {
       bufferRef.current = previousBuffer;
@@ -66,20 +72,27 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       bufferRef.current = '';
     }
 
+    const onDataCallback = (data: string) => {
+      write(data);
+      bufferRef.current = trimBuffer(bufferRef.current + data, MAX_BUFFER_SIZE);
+    };
+
     const attachToChannel = (channelId: string) => {
       currentChannelRef.current = channelId;
-      startReading(channelId, (data) => {
-        write(data);
-        bufferRef.current += data;
-      });
+      sshService.startReading(channelId, onDataCallback);
 
       setTimeout(() => {
         fit();
         const size = getSize();
-        resize(channelId, size.cols, size.rows).catch((err) => {
+        sshService.resize(channelId, size.cols, size.rows).catch((err) => {
           console.error('Resize after attach failed', { tabId, channelId, err });
         });
         focus();
+
+        // Enable auto-reconnect
+        if (session) {
+          sshService.enableAutoReconnect(tabId, session, size.cols, size.rows, onDataCallback);
+        }
       }, 200);
     };
 
@@ -99,7 +112,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       write(connectMsg);
       bufferRef.current += connectMsg;
 
-        const channelId = await connect(tabId, session, cols, rows);
+      const channelId = await sshService.connect(tabId, session, cols, rows);
 
       if (channelId) {
         hasConnectedRef.current = true;
@@ -123,17 +136,17 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     return () => {
       const channelToClean = currentChannelRef.current || tab.channelId;
       if (channelToClean) {
-        stopReading(channelToClean);
+        sshService.stopReading(channelToClean);
       }
-      // Capture buffer before disposing terminal so we can restore on remount
+      // Disable auto-reconnect when unmounting
+      sshService.disableAutoReconnect(tabId);
       const persisted = bufferRef.current || getBufferText();
       setTabBuffer(tabId, persisted || '');
 
       cleanup?.();
     };
-  }, [tabId, tab?.channelId, session?.id, connect, initTerminal, fit, getSize, resize, startReading, write, focus, stopReading, writeln, getTabBuffer, setTabBuffer, getBufferText, scrollToBottom]);
+  }, [tabId, tab?.channelId, session?.id, initTerminal, fit, getSize, write, focus, writeln, getTabBuffer, setTabBuffer, getBufferText, scrollToBottom, addToast]);
 
-  // Handle window resize
   useEffect(() => {
     const handleWindowResize = () => fit();
     window.addEventListener('resize', handleWindowResize);
@@ -144,17 +157,19 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     if (!session || !tab) return;
 
     if (tab.channelId) {
-      await disconnect(tabId, tab.channelId);
+      await sshService.disconnect(tabId, tab.channelId);
     }
 
     writeln(`\r\n\x1b[33mReconnecting...\x1b[0m\r\n`);
     updateTabStatus(tabId, 'connecting');
 
-    const channelId = await connect(tabId, session);
+    const { cols, rows } = getSize();
+    const channelId = await sshService.connect(tabId, session, cols, rows);
     if (channelId) {
-        setTimeout(() => fit(), 100);
-      startReading(channelId, (data) => {
+      setTimeout(() => fit(), 100);
+      sshService.startReading(channelId, (data) => {
         write(data);
+        bufferRef.current = trimBuffer(bufferRef.current + data, MAX_BUFFER_SIZE);
       });
     }
   };
@@ -162,13 +177,13 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   const handleStop = async () => {
     if (!tab?.channelId) return;
 
-    await disconnect(tabId, tab.channelId);
+    await sshService.disconnect(tabId, tab.channelId);
     writeln(`\r\n\x1b[33m━━━ Session disconnected ━━━\x1b[0m\r\n`);
   };
 
   const handleClose = async () => {
     if (tab?.channelId) {
-      await disconnect(tabId, tab.channelId);
+      await sshService.disconnect(tabId, tab.channelId);
     }
     closeTab(tabId);
   };
@@ -334,12 +349,11 @@ export function TerminalView({ tabId }: TerminalViewProps) {
         </div>
       </div>
 
-      {/* Terminal Container - balanced padding (small) to avoid cutoff */}
+      {/* Terminal Container - compact padding */}
       <div
         ref={containerRef}
-        className="flex-1 px-2 pt-2 pb-6 overflow-hidden min-h-0"
+        className="flex-1 p-2 overflow-hidden min-h-0"
         onClick={() => focus()}
-        style={{ marginBottom: '10px' }}
       />
     </div>
   );

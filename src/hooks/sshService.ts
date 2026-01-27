@@ -9,9 +9,66 @@ interface PtyOutputPayload {
   data: string;
 }
 
+interface ReconnectConfig {
+  tabId: string;
+  session: Session;
+  cols: number;
+  rows: number;
+  onData: (data: string) => void;
+}
+
+// Error type classification for better UX
+function classifyError(error: string): { title: string; message: string } {
+  const errorLower = error.toLowerCase();
+
+  if (errorLower.includes('auth') || errorLower.includes('permission denied')) {
+    return {
+      title: 'Authentication Failed',
+      message: 'Invalid username, password, or SSH key. Please check your credentials.',
+    };
+  }
+  if (errorLower.includes('timeout') || errorLower.includes('timed out')) {
+    return {
+      title: 'Connection Timeout',
+      message: 'Server took too long to respond. Check if the host is reachable.',
+    };
+  }
+  if (errorLower.includes('refused') || errorLower.includes('connection refused')) {
+    return {
+      title: 'Connection Refused',
+      message: 'Server refused the connection. Verify the port and firewall settings.',
+    };
+  }
+  if (errorLower.includes('unreachable') || errorLower.includes('no route')) {
+    return {
+      title: 'Host Unreachable',
+      message: 'Cannot reach the server. Check network connectivity.',
+    };
+  }
+  if (errorLower.includes('key') && errorLower.includes('not found')) {
+    return {
+      title: 'SSH Key Not Found',
+      message: 'The specified private key file does not exist.',
+    };
+  }
+  if (errorLower.includes('dns') || errorLower.includes('resolve')) {
+    return {
+      title: 'DNS Resolution Failed',
+      message: 'Could not resolve hostname. Check the server address.',
+    };
+  }
+
+  return {
+    title: 'Connection Failed',
+    message: error,
+  };
+}
+
 class SSHService {
   private static instance: SSHService;
   private callbacks = new Map<string, (data: string) => void>();
+  private reconnectConfigs = new Map<string, ReconnectConfig>();
+  private reconnectTimers = new Map<string, NodeJS.Timeout>();
   private initialized = false;
   private outputUnlisten: (() => void) | null = null;
   private closedUnlisten: (() => void) | null = null;
@@ -31,7 +88,7 @@ class SSHService {
 
     console.log('SSHService: Initializing global listeners');
 
-    // Listen for PTY output - ONCE globally
+    // Listen for PTY output
     this.outputUnlisten = await listen<PtyOutputPayload>('pty_output', (event) => {
       const { channelId, data } = event.payload;
       const callback = this.callbacks.get(channelId);
@@ -40,16 +97,86 @@ class SSHService {
       }
     });
 
-    // Listen for PTY closed events - ONCE globally
+    // Listen for PTY closed events - trigger auto-reconnect if configured
     this.closedUnlisten = await listen<string>('pty_closed', (event) => {
       const channelId = event.payload;
-      const { tabs, updateTabStatus } = useStore.getState();
+      const { tabs, updateTabStatus, addToast } = useStore.getState();
       const tab = tabs.find(t => t.channelId === channelId);
+
       if (tab) {
         updateTabStatus(tab.id, 'disconnected');
+
+        // Check if auto-reconnect is configured for this tab
+        const config = this.reconnectConfigs.get(tab.id);
+        if (config) {
+          addToast({
+            type: 'warning',
+            title: 'Connection Lost',
+            message: 'Attempting to reconnect...',
+            duration: 3000,
+          });
+          this.scheduleReconnect(tab.id, 1);
+        }
       }
       this.callbacks.delete(channelId);
     });
+  }
+
+  // Enable auto-reconnect for a tab
+  enableAutoReconnect(tabId: string, session: Session, cols: number, rows: number, onData: (data: string) => void) {
+    this.reconnectConfigs.set(tabId, { tabId, session, cols, rows, onData });
+  }
+
+  // Disable auto-reconnect for a tab
+  disableAutoReconnect(tabId: string) {
+    this.reconnectConfigs.delete(tabId);
+    const timer = this.reconnectTimers.get(tabId);
+    if (timer) {
+      clearTimeout(timer);
+      this.reconnectTimers.delete(tabId);
+    }
+  }
+
+  private scheduleReconnect(tabId: string, attempt: number) {
+    const maxAttempts = 5;
+    if (attempt > maxAttempts) {
+      const { addToast } = useStore.getState();
+      addToast({
+        type: 'error',
+        title: 'Reconnection Failed',
+        message: `Could not reconnect after ${maxAttempts} attempts.`,
+        duration: 5000,
+      });
+      this.disableAutoReconnect(tabId);
+      return;
+    }
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+    const delay = Math.min(1000 * Math.pow(2, attempt - 1), 16000);
+
+    const timer = setTimeout(async () => {
+      const config = this.reconnectConfigs.get(tabId);
+      if (!config) return;
+
+      const { updateTabStatus, addToast } = useStore.getState();
+      updateTabStatus(tabId, 'connecting');
+
+      const channelId = await this.connect(tabId, config.session, config.cols, config.rows);
+
+      if (channelId) {
+        this.startReading(channelId, config.onData);
+        addToast({
+          type: 'success',
+          title: 'Reconnected',
+          message: `Successfully reconnected to ${config.session.name}`,
+        });
+      } else {
+        // Try again
+        this.scheduleReconnect(tabId, attempt + 1);
+      }
+    }, delay);
+
+    this.reconnectTimers.set(tabId, timer);
   }
 
   async connect(
@@ -65,7 +192,10 @@ class SSHService {
       host: session.host,
       port: session.port,
       username: session.username,
-      password: session.password || '',
+      authMethod: session.authMethod || 'password',
+      password: session.password,
+      privateKeyPath: session.privateKeyPath,
+      privateKeyPassphrase: session.privateKeyPassphrase,
       jumpHost: session.jumpHost,
       jumpPort: session.jumpPort,
       jumpUsername: session.jumpUsername,
@@ -86,10 +216,13 @@ class SSHService {
     } catch (error) {
       console.error('SSH connection failed:', error);
       updateTabStatus(tabId, 'error');
+
+      const errorInfo = classifyError(String(error));
       addToast({
         type: 'error',
-        title: 'Connection Failed',
-        message: String(error),
+        title: errorInfo.title,
+        message: errorInfo.message,
+        duration: 5000,
       });
       return null;
     }
@@ -103,8 +236,8 @@ class SSHService {
       console.error('Failed to send:', error);
       addToast({
         type: 'error',
-        title: 'Envío fallido',
-        message: 'No se pudo enviar datos al servidor',
+        title: 'Send Failed',
+        message: 'Could not send data to server',
         duration: 2500,
       });
     }
@@ -119,34 +252,25 @@ class SSHService {
   }
 
   async resize(channelId: string, cols: number, rows: number) {
-    const { addToast } = useStore.getState();
     try {
       await invoke('ssh_resize', { channelId, cols, rows });
     } catch (error) {
       console.error('Failed to resize:', error);
-      addToast({
-        type: 'error',
-        title: 'Error de redimensionado',
-        message: 'No se pudo ajustar el tamaño del terminal',
-        duration: 2500,
-      });
     }
   }
 
   async disconnect(tabId: string, channelId: string) {
-    const { updateTabStatus, addToast } = useStore.getState();
+    const { updateTabStatus } = useStore.getState();
+
+    // Disable auto-reconnect when manually disconnecting
+    this.disableAutoReconnect(tabId);
+
     try {
       await invoke('ssh_disconnect', { channelId });
       this.callbacks.delete(channelId);
       updateTabStatus(tabId, 'disconnected');
     } catch (error) {
       console.error('Failed to disconnect:', error);
-      addToast({
-        type: 'error',
-        title: 'Error al desconectar',
-        message: 'No se pudo cerrar la sesión SSH',
-        duration: 2500,
-      });
     }
   }
 
@@ -154,6 +278,9 @@ class SSHService {
     this.outputUnlisten?.();
     this.closedUnlisten?.();
     this.callbacks.clear();
+    this.reconnectConfigs.clear();
+    this.reconnectTimers.forEach(timer => clearTimeout(timer));
+    this.reconnectTimers.clear();
     this.initialized = false;
   }
 }

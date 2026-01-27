@@ -1,44 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Server, Key, Globe, Folder, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { X, Server, Key, Globe, FileKey } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { useTheme } from '../contexts/ThemeContext';
-import type { SessionColor } from '../types';
-
-// Validation helpers
-const isValidIPv4 = (ip: string): boolean => {
-  const ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-  return ipv4Regex.test(ip);
-};
-
-const isValidIPv6 = (ip: string): boolean => {
-  const ipv6Regex = /^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,7}:$|^(?:[0-9a-fA-F]{1,4}:){0,6}::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}$/;
-  return ipv6Regex.test(ip);
-};
-
-const isValidHostname = (hostname: string): boolean => {
-  // Allow localhost
-  if (hostname === 'localhost') return true;
-  // Standard hostname validation
-  const hostnameRegex = /^(?=.{1,253}$)(?!-)[a-zA-Z0-9-]{1,63}(?<!-)(\.(?!-)[a-zA-Z0-9-]{1,63}(?<!-))*$/;
-  return hostnameRegex.test(hostname);
-};
-
-const isValidHost = (host: string): boolean => {
-  if (!host) return false;
-  return isValidIPv4(host) || isValidIPv6(host) || isValidHostname(host);
-};
-
-const isValidPort = (port: number): boolean => {
-  return Number.isInteger(port) && port >= 1 && port <= 65535;
-};
-
-const isValidUsername = (username: string): boolean => {
-  // Username should not be empty and not contain spaces or special chars except _ and -
-  if (!username) return false;
-  const usernameRegex = /^[a-zA-Z0-9_-]+$/;
-  return usernameRegex.test(username);
-};
+import type { SessionColor, AuthMethod } from '../types';
 
 const colors: { value: SessionColor; label: string; class: string }[] = [
   { value: 'blue', label: 'Blue', class: 'bg-blue-500' },
@@ -52,214 +16,51 @@ const colors: { value: SessionColor; label: string; class: string }[] = [
 ];
 
 export function SessionModal() {
-  const { sessionModal, closeSessionModal, addSession, updateSession, groups, settings } = useStore();
-  const { isDark } = useTheme();
+  const { sessionModal, closeSessionModal, addSession, updateSession } = useStore();
 
   const isEdit = sessionModal.data?.mode === 'edit';
   const existingSession = sessionModal.data?.session;
 
   const [formData, setFormData] = useState({
-    name: '',
-    host: '',
-    port: 22,
-    username: '',
-    password: '',
-    jumpHost: '',
-    jumpPort: 22,
-    jumpUsername: '',
-    jumpPassword: '',
-    color: 'blue' as SessionColor,
-    groupId: '',
+    name: existingSession?.name || '',
+    host: existingSession?.host || '',
+    port: existingSession?.port || 22,
+    username: existingSession?.username || '',
+    authMethod: (existingSession?.authMethod || 'password') as AuthMethod,
+    password: existingSession?.password || '',
+    privateKeyPath: existingSession?.privateKeyPath || '',
+    privateKeyPassphrase: existingSession?.privateKeyPassphrase || '',
+    jumpHost: existingSession?.jumpHost || '',
+    jumpPort: existingSession?.jumpPort || 22,
+    jumpUsername: existingSession?.jumpUsername || '',
+    jumpPassword: existingSession?.jumpPassword || '',
+    color: existingSession?.color || 'blue' as SessionColor,
   });
 
-  const [showJumpHost, setShowJumpHost] = useState(false);
+  const [showJumpHost, setShowJumpHost] = useState(!!existingSession?.jumpHost);
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showJumpPassword, setShowJumpPassword] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
-
-  // Use global setting for password visibility
-  const passwordVisible = settings.showPasswords || showPassword;
-  const jumpPasswordVisible = settings.showPasswords || showJumpPassword;
-
-  // Validate a single field
-  const validateField = (name: string, value: string | number): string => {
-    switch (name) {
-      case 'name':
-        if (!value || (typeof value === 'string' && !value.trim())) {
-          return 'Session name is required';
-        }
-        if (typeof value === 'string' && value.length > 50) {
-          return 'Name must be less than 50 characters';
-        }
-        return '';
-      case 'host':
-        if (!value) {
-          return 'Host is required';
-        }
-        if (typeof value === 'string' && !isValidHost(value)) {
-          return 'Enter a valid IP address or hostname';
-        }
-        return '';
-      case 'port':
-        if (!isValidPort(Number(value))) {
-          return 'Port must be between 1 and 65535';
-        }
-        return '';
-      case 'username':
-        if (!value) {
-          return 'Username is required';
-        }
-        if (typeof value === 'string' && !isValidUsername(value)) {
-          return 'Username can only contain letters, numbers, _ and -';
-        }
-        return '';
-      case 'jumpHost':
-        if (showJumpHost && value && typeof value === 'string' && !isValidHost(value)) {
-          return 'Enter a valid IP address or hostname';
-        }
-        return '';
-      case 'jumpPort':
-        if (showJumpHost && !isValidPort(Number(value))) {
-          return 'Port must be between 1 and 65535';
-        }
-        return '';
-      case 'jumpUsername':
-        if (showJumpHost && value && typeof value === 'string' && !isValidUsername(value)) {
-          return 'Username can only contain letters, numbers, _ and -';
-        }
-        return '';
-      default:
-        return '';
-    }
-  };
-
-  // Validate all fields
-  const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    newErrors.name = validateField('name', formData.name);
-    newErrors.host = validateField('host', formData.host);
-    newErrors.port = validateField('port', formData.port);
-    newErrors.username = validateField('username', formData.username);
-
-    if (showJumpHost) {
-      if (formData.jumpHost) {
-        newErrors.jumpHost = validateField('jumpHost', formData.jumpHost);
-      }
-      newErrors.jumpPort = validateField('jumpPort', formData.jumpPort);
-      if (formData.jumpUsername) {
-        newErrors.jumpUsername = validateField('jumpUsername', formData.jumpUsername);
-      }
-    }
-
-    // Filter out empty error messages
-    const filteredErrors: Record<string, string> = {};
-    Object.entries(newErrors).forEach(([key, value]) => {
-      if (value) filteredErrors[key] = value;
-    });
-
-    setErrors(filteredErrors);
-    return Object.keys(filteredErrors).length === 0;
-  };
-
-  // Handle field blur for validation
-  const handleBlur = (field: string) => {
-    setTouched((prev) => ({ ...prev, [field]: true }));
-    const error = validateField(field, formData[field as keyof typeof formData]);
-    setErrors((prev) => ({ ...prev, [field]: error }));
-  };
-
-  // Handle field change with validation
-  const handleChange = (field: string, value: string | number) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-    // Only validate if field has been touched
-    if (touched[field]) {
-      const error = validateField(field, value);
-      setErrors((prev) => ({ ...prev, [field]: error }));
-    }
-  };
-
-  // Reset form data when modal opens or session changes
-  useEffect(() => {
-    if (sessionModal.isOpen) {
-      // Reset errors and touched states
-      setErrors({});
-      setTouched({});
-
-      if (existingSession) {
-        setFormData({
-          name: existingSession.name || '',
-          host: existingSession.host || '',
-          port: existingSession.port || 22,
-          username: existingSession.username || '',
-          password: existingSession.password || '',
-          jumpHost: existingSession.jumpHost || '',
-          jumpPort: existingSession.jumpPort || 22,
-          jumpUsername: existingSession.jumpUsername || '',
-          jumpPassword: existingSession.jumpPassword || '',
-          color: existingSession.color || 'blue',
-          groupId: existingSession.groupId || '',
-        });
-        setShowJumpHost(!!existingSession.jumpHost);
-      } else {
-        // Reset to defaults for new session
-        setFormData({
-          name: '',
-          host: '',
-          port: 22,
-          username: '',
-          password: '',
-          jumpHost: '',
-          jumpPort: 22,
-          jumpUsername: '',
-          jumpPassword: '',
-          color: 'blue',
-          groupId: '',
-        });
-        setShowJumpHost(false);
-      }
-    }
-  }, [sessionModal.isOpen, existingSession]);
 
   if (!sessionModal.isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Mark all fields as touched
-    setTouched({
-      name: true,
-      host: true,
-      port: true,
-      username: true,
-      jumpHost: true,
-      jumpPort: true,
-      jumpUsername: true,
-    });
-
-    // Validate form
-    if (!validateForm()) {
-      return;
-    }
-
     setIsLoading(true);
 
     try {
       const sessionData = {
-        name: formData.name.trim(),
-        host: formData.host.trim(),
+        name: formData.name,
+        host: formData.host,
         port: formData.port,
-        username: formData.username.trim(),
-        password: formData.password || undefined,
-        jumpHost: showJumpHost ? formData.jumpHost.trim() || undefined : undefined,
+        username: formData.username,
+        authMethod: formData.authMethod,
+        password: formData.authMethod === 'password' ? formData.password : undefined,
+        privateKeyPath: formData.authMethod === 'key' ? formData.privateKeyPath : undefined,
+        privateKeyPassphrase: formData.authMethod === 'key' ? formData.privateKeyPassphrase : undefined,
+        jumpHost: showJumpHost ? formData.jumpHost : undefined,
         jumpPort: showJumpHost ? formData.jumpPort : undefined,
-        jumpUsername: showJumpHost ? formData.jumpUsername.trim() || undefined : undefined,
-        jumpPassword: showJumpHost ? formData.jumpPassword || undefined : undefined,
+        jumpUsername: showJumpHost ? formData.jumpUsername : undefined,
+        jumpPassword: showJumpHost ? formData.jumpPassword : undefined,
         color: formData.color,
-        // Use null for empty groupId to ensure proper serialization to backend
-        groupId: formData.groupId || null,
       };
 
       if (isEdit && existingSession) {
@@ -290,36 +91,26 @@ export function SessionModal() {
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className={`relative w-full max-w-lg backdrop-blur-xl rounded-2xl border shadow-2xl ${
-          isDark
-            ? 'bg-zinc-900/90 border-white/10'
-            : 'bg-white/95 border-zinc-200'
-        }`}
+        className="relative w-full max-w-lg bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto"
       >
         {/* Header */}
-        <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-white/5' : 'border-zinc-200'}`}>
+        <div className="flex items-center justify-between p-4 border-b border-white/5 sticky top-0 bg-zinc-900/90 backdrop-blur-xl z-10">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              isDark ? 'bg-blue-500/20' : 'bg-blue-100'
-            }`}>
-              <Server className={`w-5 h-5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+            <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+              <Server className="w-5 h-5 text-blue-400" />
             </div>
             <div>
-              <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+              <h2 className="text-lg font-semibold text-white">
                 {isEdit ? 'Edit Session' : 'New Session'}
               </h2>
-              <p className={`text-sm ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+              <p className="text-sm text-zinc-400">
                 {isEdit ? 'Update SSH session details' : 'Add a new SSH session'}
               </p>
             </div>
           </div>
           <button
             onClick={closeSessionModal}
-            className={`p-2 rounded-lg transition-colors ${
-              isDark
-                ? 'hover:bg-white/5 text-zinc-400 hover:text-white'
-                : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900'
-            }`}
+            className="p-2 rounded-lg hover:bg-white/5 text-zinc-400 hover:text-white transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -329,33 +120,23 @@ export function SessionModal() {
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {/* Name */}
           <div>
-            <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
               Session Name
             </label>
             <input
               type="text"
               value={formData.name}
-              onChange={(e) => handleChange('name', e.target.value)}
-              onBlur={() => handleBlur('name')}
-              className={`w-full px-3 py-2 border rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 ${
-                isDark
-                  ? 'bg-zinc-800/50 text-white border-white/10'
-                  : 'bg-zinc-100 text-zinc-900 border-zinc-300'
-              } ${errors.name && touched.name ? 'border-red-500/50' : ''}`}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full px-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
               placeholder="My Server"
+              required
             />
-            {errors.name && touched.name && (
-              <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" />
-                {errors.name}
-              </p>
-            )}
           </div>
 
           {/* Host & Port */}
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
                 Host
               </label>
               <div className="relative">
@@ -363,107 +144,135 @@ export function SessionModal() {
                 <input
                   type="text"
                   value={formData.host}
-                  onChange={(e) => handleChange('host', e.target.value)}
-                  onBlur={() => handleBlur('host')}
-                  className={`w-full pl-9 pr-3 py-2 border rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 ${
-                    isDark
-                      ? 'bg-zinc-800/50 text-white border-white/10'
-                      : 'bg-zinc-100 text-zinc-900 border-zinc-300'
-                  } ${errors.host && touched.host ? 'border-red-500/50' : ''}`}
-                  placeholder="192.168.1.100 or server.com"
+                  onChange={(e) => setFormData({ ...formData, host: e.target.value })}
+                  className="w-full pl-9 pr-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+                  placeholder="192.168.1.100"
+                  required
                 />
               </div>
-              {errors.host && touched.host && (
-                <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" />
-                  {errors.host}
-                </p>
-              )}
             </div>
             <div>
-              <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
                 Port
               </label>
               <input
                 type="number"
                 value={formData.port}
-                onChange={(e) => handleChange('port', parseInt(e.target.value) || 22)}
-                onBlur={() => handleBlur('port')}
-                className={`w-full px-3 py-2 border rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 ${
-                  isDark
-                    ? 'bg-zinc-800/50 text-white border-white/10'
-                    : 'bg-zinc-100 text-zinc-900 border-zinc-300'
-                } ${errors.port && touched.port ? 'border-red-500/50' : ''}`}
+                onChange={(e) => setFormData({ ...formData, port: parseInt(e.target.value) || 22 })}
+                className="w-full px-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
                 min={1}
                 max={65535}
               />
-              {errors.port && touched.port && (
-                <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" />
-                  {errors.port}
-                </p>
-              )}
             </div>
           </div>
 
-          {/* Username & Password */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
-                Username
-              </label>
-              <input
-                type="text"
-                value={formData.username}
-                onChange={(e) => handleChange('username', e.target.value)}
-                onBlur={() => handleBlur('username')}
-                className={`w-full px-3 py-2 border rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 ${
-                  isDark
-                    ? 'bg-zinc-800/50 text-white border-white/10'
-                    : 'bg-zinc-100 text-zinc-900 border-zinc-300'
-                } ${errors.username && touched.username ? 'border-red-500/50' : ''}`}
-                placeholder="root"
-              />
-              {errors.username && touched.username && (
-                <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" />
-                  {errors.username}
-                </p>
-              )}
+          {/* Username */}
+          <div>
+            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+              Username
+            </label>
+            <input
+              type="text"
+              value={formData.username}
+              onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+              className="w-full px-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+              placeholder="root"
+              required
+            />
+          </div>
+
+          {/* Auth Method Toggle */}
+          <div>
+            <label className="block text-sm font-medium text-zinc-300 mb-2">
+              Authentication Method
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, authMethod: 'password' })}
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
+                  formData.authMethod === 'password'
+                    ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
+                    : 'border-white/10 text-zinc-400 hover:border-white/20'
+                }`}
+              >
+                <Key className="w-4 h-4" />
+                <span className="text-sm">Password</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, authMethod: 'key' })}
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
+                  formData.authMethod === 'key'
+                    ? 'bg-green-500/20 border-green-500/50 text-green-400'
+                    : 'border-white/10 text-zinc-400 hover:border-white/20'
+                }`}
+              >
+                <FileKey className="w-4 h-4" />
+                <span className="text-sm">SSH Key</span>
+              </button>
             </div>
+          </div>
+
+          {/* Password or SSH Key fields */}
+          {formData.authMethod === 'password' ? (
             <div>
-              <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
                 Password
               </label>
               <div className="relative">
                 <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
-                  type={passwordVisible ? 'text' : 'password'}
+                  type="password"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className={`w-full pl-9 pr-10 py-2 border rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 ${
-                    isDark
-                      ? 'bg-zinc-800/50 text-white border-white/10'
-                      : 'bg-zinc-100 text-zinc-900 border-zinc-300'
-                  }`}
+                  className="w-full pl-9 pr-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
                   placeholder="••••••••"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className={`absolute right-3 top-1/2 -translate-y-1/2 transition-colors ${
-                    isDark ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'
-                  }`}
-                >
-                  {passwordVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                  Private Key Path
+                </label>
+                <div className="relative">
+                  <FileKey className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                  <input
+                    type="text"
+                    value={formData.privateKeyPath}
+                    onChange={(e) => setFormData({ ...formData, privateKeyPath: e.target.value })}
+                    className="w-full pl-9 pr-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50"
+                    placeholder="~/.ssh/id_rsa"
+                    required={formData.authMethod === 'key'}
+                  />
+                </div>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Full path to your private key file (e.g., ~/.ssh/id_rsa)
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                  Key Passphrase (optional)
+                </label>
+                <div className="relative">
+                  <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                  <input
+                    type="password"
+                    value={formData.privateKeyPassphrase}
+                    onChange={(e) => setFormData({ ...formData, privateKeyPassphrase: e.target.value })}
+                    className="w-full pl-9 pr-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50"
+                    placeholder="Leave empty if key has no passphrase"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Color */}
           <div>
-            <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
               Color
             </label>
             <div className="flex gap-2">
@@ -474,9 +283,7 @@ export function SessionModal() {
                   onClick={() => setFormData({ ...formData, color: color.value })}
                   className={`
                     w-8 h-8 rounded-lg ${color.class} transition-transform
-                    ${formData.color === color.value
-                      ? `ring-2 ring-offset-2 scale-110 ${isDark ? 'ring-white ring-offset-zinc-900' : 'ring-zinc-800 ring-offset-white'}`
-                      : 'hover:scale-105'}
+                    ${formData.color === color.value ? 'ring-2 ring-white ring-offset-2 ring-offset-zinc-900 scale-110' : 'hover:scale-105'}
                   `}
                   title={color.label}
                 />
@@ -484,46 +291,16 @@ export function SessionModal() {
             </div>
           </div>
 
-          {/* Group */}
-          {groups.length > 0 && (
-            <div>
-              <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
-                Group
-              </label>
-              <div className="relative">
-                <Folder className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                <select
-                  value={formData.groupId}
-                  onChange={(e) => setFormData({ ...formData, groupId: e.target.value })}
-                  className={`w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 appearance-none cursor-pointer ${
-                    isDark
-                      ? 'bg-zinc-800/50 text-white border-white/10'
-                      : 'bg-zinc-100 text-zinc-900 border-zinc-300'
-                  }`}
-                >
-                  <option value="">No group</option>
-                  {groups.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-
           {/* Jump Host Toggle */}
-          <div className={`border-t pt-4 ${isDark ? 'border-white/5' : 'border-zinc-200'}`}>
+          <div className="border-t border-white/5 pt-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={showJumpHost}
                 onChange={(e) => setShowJumpHost(e.target.checked)}
-                className={`w-4 h-4 rounded text-blue-500 focus:ring-blue-500/50 ${
-                  isDark ? 'border-white/20 bg-zinc-800' : 'border-zinc-300 bg-white'
-                }`}
+                className="w-4 h-4 rounded border-white/20 bg-zinc-800 text-blue-500 focus:ring-blue-500/50"
               />
-              <span className={`text-sm ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>Use Jump Host (Bastion)</span>
+              <span className="text-sm text-zinc-300">Use Jump Host (Bastion)</span>
             </label>
           </div>
 
@@ -533,11 +310,9 @@ export function SessionModal() {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className={`space-y-3 p-3 rounded-lg border ${
-                isDark ? 'bg-zinc-800/30 border-white/5' : 'bg-zinc-100 border-zinc-200'
-              }`}
+              className="space-y-3 p-3 bg-zinc-800/30 rounded-lg border border-white/5"
             >
-              <div className={`text-xs font-medium uppercase tracking-wider ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>
+              <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
                 Jump Host Configuration
               </div>
               <div className="grid grid-cols-3 gap-3">
@@ -545,102 +320,48 @@ export function SessionModal() {
                   <input
                     type="text"
                     value={formData.jumpHost}
-                    onChange={(e) => handleChange('jumpHost', e.target.value)}
-                    onBlur={() => handleBlur('jumpHost')}
-                    className={`w-full px-3 py-2 border rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm ${
-                      isDark
-                        ? 'bg-zinc-800/50 text-white border-white/10'
-                        : 'bg-white text-zinc-900 border-zinc-300'
-                    } ${errors.jumpHost && touched.jumpHost ? 'border-red-500/50' : ''}`}
-                    placeholder="192.168.1.1 or bastion.server.com"
+                    onChange={(e) => setFormData({ ...formData, jumpHost: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
+                    placeholder="Jump Host"
                   />
-                  {errors.jumpHost && touched.jumpHost && (
-                    <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3" />
-                      {errors.jumpHost}
-                    </p>
-                  )}
                 </div>
                 <div>
                   <input
                     type="number"
                     value={formData.jumpPort}
-                    onChange={(e) => handleChange('jumpPort', parseInt(e.target.value) || 22)}
-                    onBlur={() => handleBlur('jumpPort')}
-                    className={`w-full px-3 py-2 border rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm ${
-                      isDark
-                        ? 'bg-zinc-800/50 text-white border-white/10'
-                        : 'bg-white text-zinc-900 border-zinc-300'
-                    } ${errors.jumpPort && touched.jumpPort ? 'border-red-500/50' : ''}`}
+                    onChange={(e) => setFormData({ ...formData, jumpPort: parseInt(e.target.value) || 22 })}
+                    className="w-full px-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
                     placeholder="Port"
                     min={1}
                     max={65535}
                   />
-                  {errors.jumpPort && touched.jumpPort && (
-                    <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3" />
-                      {errors.jumpPort}
-                    </p>
-                  )}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <input
-                    type="text"
-                    value={formData.jumpUsername}
-                    onChange={(e) => handleChange('jumpUsername', e.target.value)}
-                    onBlur={() => handleBlur('jumpUsername')}
-                    className={`w-full px-3 py-2 border rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm ${
-                      isDark
-                        ? 'bg-zinc-800/50 text-white border-white/10'
-                        : 'bg-white text-zinc-900 border-zinc-300'
-                    } ${errors.jumpUsername && touched.jumpUsername ? 'border-red-500/50' : ''}`}
-                    placeholder="Username"
-                  />
-                  {errors.jumpUsername && touched.jumpUsername && (
-                    <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3" />
-                      {errors.jumpUsername}
-                    </p>
-                  )}
-                </div>
-                <div className="relative">
-                  <input
-                    type={jumpPasswordVisible ? 'text' : 'password'}
-                    value={formData.jumpPassword}
-                    onChange={(e) => setFormData({ ...formData, jumpPassword: e.target.value })}
-                    className={`w-full px-3 pr-10 py-2 border rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm ${
-                      isDark
-                        ? 'bg-zinc-800/50 text-white border-white/10'
-                        : 'bg-white text-zinc-900 border-zinc-300'
-                    }`}
-                    placeholder="Password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowJumpPassword(!showJumpPassword)}
-                    className={`absolute right-3 top-1/2 -translate-y-1/2 transition-colors ${
-                      isDark ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-400 hover:text-zinc-600'
-                    }`}
-                  >
-                    {jumpPasswordVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
+                <input
+                  type="text"
+                  value={formData.jumpUsername}
+                  onChange={(e) => setFormData({ ...formData, jumpUsername: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
+                  placeholder="Username"
+                />
+                <input
+                  type="password"
+                  value={formData.jumpPassword}
+                  onChange={(e) => setFormData({ ...formData, jumpPassword: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
+                  placeholder="Password"
+                />
               </div>
             </motion.div>
           )}
 
           {/* Actions */}
-          <div className={`flex justify-end gap-3 pt-4 border-t ${isDark ? 'border-white/5' : 'border-zinc-200'}`}>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
             <button
               type="button"
               onClick={closeSessionModal}
-              className={`px-4 py-2 rounded-lg border transition-colors ${
-                isDark
-                  ? 'border-white/10 text-zinc-300 hover:bg-white/5'
-                  : 'border-zinc-300 text-zinc-700 hover:bg-zinc-100'
-              }`}
+              className="px-4 py-2 rounded-lg border border-white/10 text-zinc-300 hover:bg-white/5 transition-colors"
             >
               Cancel
             </button>

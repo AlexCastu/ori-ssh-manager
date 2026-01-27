@@ -1,33 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Code } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { useTheme } from '../contexts/ThemeContext';
 
 export function CommandModal() {
-  const { commandModal, closeCommandModal, addCommand, updateCommand, activeSessionId } = useStore();
-  const { isDark } = useTheme();
+  const { commandModal, closeCommandModal, addCommand, activeSessionId } = useStore();
 
   const [name, setName] = useState('');
   const [command, setCommand] = useState('');
   const [isGlobal, setIsGlobal] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
-
-  const isEditMode = commandModal.data?.mode === 'edit' && commandModal.data?.command;
-  const editingCommand = commandModal.data?.command;
-
-  // Populate form when editing
-  useEffect(() => {
-    if (isEditMode && editingCommand) {
-      setName(editingCommand.name);
-      setCommand(editingCommand.command);
-      setIsGlobal(!editingCommand.sessionId);
-    } else {
-      setName('');
-      setCommand('');
-      setIsGlobal(true);
-    }
-  }, [isEditMode, editingCommand]);
 
   if (!commandModal.isOpen) return null;
 
@@ -37,19 +19,11 @@ export function CommandModal() {
 
     setIsLoading(true);
     try {
-      if (isEditMode && editingCommand) {
-        await updateCommand(editingCommand.id, {
-          name: name.trim(),
-          command: command.trim(),
-          sessionId: isGlobal ? undefined : activeSessionId || undefined,
-        });
-      } else {
-        await addCommand({
-          name: name.trim(),
-          command: command.trim(),
-          sessionId: isGlobal ? undefined : activeSessionId || undefined,
-        });
-      }
+      await addCommand({
+        name: name.trim(),
+        command: command.trim(),
+        sessionId: isGlobal ? undefined : activeSessionId || undefined,
+      });
       closeCommandModal();
       setName('');
       setCommand('');
@@ -74,36 +48,22 @@ export function CommandModal() {
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className={`relative w-full max-w-md backdrop-blur-xl rounded-2xl border shadow-2xl ${
-          isDark
-            ? 'bg-zinc-900/90 border-white/10'
-            : 'bg-white/95 border-zinc-200'
-        }`}
+        className="relative w-full max-w-md bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl"
       >
         {/* Header */}
-        <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-white/5' : 'border-zinc-200'}`}>
+        <div className="flex items-center justify-between p-4 border-b border-white/5">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              isDark ? 'bg-purple-500/20' : 'bg-purple-100'
-            }`}>
-              <Code className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+            <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
+              <Code className="w-5 h-5 text-purple-400" />
             </div>
             <div>
-              <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-zinc-900'}`}>
-                {isEditMode ? 'Edit Command' : 'Save Command'}
-              </h2>
-              <p className={`text-sm ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                {isEditMode ? 'Modify your command snippet' : 'Create a quick command snippet'}
-              </p>
+              <h2 className="text-lg font-semibold text-white">Save Command</h2>
+              <p className="text-sm text-zinc-400">Create a quick command snippet</p>
             </div>
           </div>
           <button
             onClick={closeCommandModal}
-            className={`p-2 rounded-lg transition-colors ${
-              isDark
-                ? 'hover:bg-white/5 text-zinc-400 hover:text-white'
-                : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900'
-            }`}
+            className="p-2 rounded-lg hover:bg-white/5 text-zinc-400 hover:text-white transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -112,36 +72,28 @@ export function CommandModal() {
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div>
-            <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
               Name
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 ${
-                isDark
-                  ? 'bg-zinc-800/50 text-white border-white/10'
-                  : 'bg-zinc-100 text-zinc-900 border-zinc-300'
-              }`}
-              placeholder="List Files"
+              className="w-full px-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50"
+              placeholder="List files"
               required
             />
           </div>
 
           <div>
-            <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
               Command
             </label>
             <textarea
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               rows={3}
-              className={`w-full px-3 py-2 border rounded-lg placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 font-mono text-sm resize-none ${
-                isDark
-                  ? 'bg-zinc-800/50 text-white border-white/10'
-                  : 'bg-zinc-100 text-zinc-900 border-zinc-300'
-              }`}
+              className="w-full px-3 py-2 bg-zinc-800/50 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 font-mono text-sm resize-none"
               placeholder="ls -la"
               required
             />
@@ -153,26 +105,20 @@ export function CommandModal() {
                 type="checkbox"
                 checked={isGlobal}
                 onChange={(e) => setIsGlobal(e.target.checked)}
-                className={`w-4 h-4 rounded text-purple-500 focus:ring-purple-500/50 ${
-                  isDark ? 'border-white/20 bg-zinc-800' : 'border-zinc-300 bg-white'
-                }`}
+                className="w-4 h-4 rounded border-white/20 bg-zinc-800 text-purple-500 focus:ring-purple-500/50"
               />
-              <span className={`text-sm ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+              <span className="text-sm text-zinc-300">
                 Global command (available for all sessions)
               </span>
             </label>
           </div>
 
           {/* Actions */}
-          <div className={`flex justify-end gap-3 pt-4 border-t ${isDark ? 'border-white/5' : 'border-zinc-200'}`}>
+          <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
             <button
               type="button"
               onClick={closeCommandModal}
-              className={`px-4 py-2 rounded-lg border transition-colors ${
-                isDark
-                  ? 'border-white/10 text-zinc-300 hover:bg-white/5'
-                  : 'border-zinc-300 text-zinc-700 hover:bg-zinc-100'
-              }`}
+              className="px-4 py-2 rounded-lg border border-white/10 text-zinc-300 hover:bg-white/5 transition-colors"
             >
               Cancel
             </button>
@@ -181,7 +127,7 @@ export function CommandModal() {
               disabled={isLoading || !name.trim() || !command.trim()}
               className="px-4 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoading ? 'Saving...' : isEditMode ? 'Update Command' : 'Save Command'}
+              {isLoading ? 'Saving...' : 'Save Command'}
             </button>
           </div>
         </form>

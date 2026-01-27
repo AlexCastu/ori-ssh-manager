@@ -3,112 +3,53 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { useStore } from '../store/useStore';
-import type { TerminalTheme, TerminalFontSize } from '../types';
 
 interface UseTerminalOptions {
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
 }
 
-// Nord Dark theme for terminal
-const nordDarkTheme = {
-  // Darker base + lighter fg for more contrast on names
-  background: '#1f2633',
-  foreground: '#edf1fa',
-  cursor: '#edf1fa',
-  cursorAccent: '#1f2633',
-  selectionBackground: '#65738a80',
-  black: '#2f3542',
-  red: '#e27878',
-  green: '#3b680a',
-  yellow: '#f3d99c',
-  // High-contrast blues/cyans so directories/links pop
-  blue: '#8cc4ff',
-  magenta: '#c7a0ff',
-  cyan: '#7de3ff',
-  white: '#f5f7ff',
-  brightBlack: '#4b5568',
-  brightRed: '#f08c82',
-  brightGreen: '#b9f287',
-  brightYellow: '#ffe2a8',
-  brightBlue: '#b3d7ff',
-  brightMagenta: '#d7b5ff',
-  brightCyan: '#a4f0ff',
-  brightWhite: '#ffffff',
-};
-
-// Nord Light theme for terminal
-const nordLightTheme = {
-  background: '#eceff4',
-  foreground: '#2e3440',
-  cursor: '#2e3440',
-  cursorAccent: '#eceff4',
-  selectionBackground: '#d8dee980',
-  black: '#2e3440',
-  red: '#bf616a',
-  green: '#a3be8c',
-  yellow: '#d08770',
-  blue: '#5e81ac',
-  magenta: '#b48ead',
-  cyan: '#88c0d0',
-  white: '#e5e9f0',
-  brightBlack: '#4c566a',
-  brightRed: '#bf616a',
-  brightGreen: '#a3be8c',
-  brightYellow: '#ebcb8b',
-  brightBlue: '#81a1c1',
-  brightMagenta: '#b48ead',
-  brightCyan: '#8fbcbb',
-  brightWhite: '#eceff4',
-};
-
-const getTerminalTheme = (themeName: TerminalTheme) => {
-  return themeName === 'nord-light' ? nordLightTheme : nordDarkTheme;
-};
-
-const fontSizeMap: Record<TerminalFontSize, number> = {
-  small: 12,
-  medium: 14,
-  large: 16,
-};
-
 export function useTerminal(options: UseTerminalOptions = {}) {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const resizeTickingRef = useRef(false);
-  const onDataRef = useRef(options.onData);
-  const onResizeRef = useRef(options.onResize);
-  const settings = useStore((state) => state.settings);
-
-  // Keep refs updated
-  useEffect(() => {
-    onDataRef.current = options.onData;
-    onResizeRef.current = options.onResize;
-  }, [options.onData, options.onResize]);
 
   const initTerminal = useCallback((container: HTMLDivElement) => {
     if (terminalRef.current) {
       terminalRef.current.dispose();
     }
 
-    const themeName = settings?.terminalTheme || 'nord-dark';
-    const theme = getTerminalTheme(themeName);
-
     const terminal = new Terminal({
       cursorBlink: true,
       cursorStyle: 'block',
       fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", Menlo, Monaco, "Courier New", monospace',
-      fontSize: fontSizeMap[settings.terminalFontSize ?? 'medium'],
+      fontSize: 14,
       lineHeight: 1.2,
-      theme,
+      theme: {
+        background: '#0a0a0f',
+        foreground: '#e4e4e7',
+        cursor: '#3b82f6',
+        cursorAccent: '#0a0a0f',
+        selectionBackground: '#3b82f640',
+        black: '#18181b',
+        red: '#ef4444',
+        green: '#22c55e',
+        yellow: '#eab308',
+        blue: '#3b82f6',
+        magenta: '#a855f7',
+        cyan: '#06b6d4',
+        white: '#e4e4e7',
+        brightBlack: '#52525b',
+        brightRed: '#f87171',
+        brightGreen: '#4ade80',
+        brightYellow: '#facc15',
+        brightBlue: '#60a5fa',
+        brightMagenta: '#c084fc',
+        brightCyan: '#22d3ee',
+        brightWhite: '#fafafa',
+      },
       allowTransparency: true,
       scrollback: 10000,
-      // Important for interaction
-      disableStdin: false,
-      allowProposedApi: true,
-      convertEol: true,
     });
 
     const fitAddon = new FitAddon();
@@ -118,69 +59,29 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     terminal.loadAddon(webLinksAddon);
 
     terminal.open(container);
-
-    // Focus terminal immediately
-    terminal.focus();
-
-    // Initial fit
     fitAddon.fit();
 
-    // Handle user input - use refs to get latest callback
+    // Handle user input
     terminal.onData((data) => {
-      onDataRef.current?.(data);
+      options.onData?.(data);
     });
-
-    // Handle resize events from terminal
-    terminal.onResize(({ cols, rows }) => {
-      onResizeRef.current?.(cols, rows);
-    });
-
-    // Make terminal focusable and capture all input
-    terminal.attachCustomKeyEventHandler(() => true);
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
     containerRef.current = container;
 
-    // Handle container resize
+    // Handle resize
     const resizeObserver = new ResizeObserver(() => {
-      if (resizeTickingRef.current) return;
-      resizeTickingRef.current = true;
-      requestAnimationFrame(() => {
-        fitAddon.fit();
-        resizeTickingRef.current = false;
-      });
+      fitAddon.fit();
+      options.onResize?.(terminal.cols, terminal.rows);
     });
     resizeObserver.observe(container);
-
-    // Notify initial size
-    setTimeout(() => {
-      if (terminal.cols && terminal.rows) {
-        onResizeRef.current?.(terminal.cols, terminal.rows);
-      }
-    }, 50);
 
     return () => {
       resizeObserver.disconnect();
       terminal.dispose();
     };
-  }, [settings?.terminalTheme, settings?.terminalFontSize]); // Remove callbacks from deps - use refs instead
-
-  // Update terminal theme when settings change
-  useEffect(() => {
-    if (terminalRef.current && settings?.terminalTheme) {
-      const theme = getTerminalTheme(settings.terminalTheme);
-      terminalRef.current.options.theme = theme;
-    }
-  }, [settings?.terminalTheme]);
-
-  useEffect(() => {
-    if (terminalRef.current && settings?.terminalFontSize) {
-      const size = fontSizeMap[settings.terminalFontSize] ?? fontSizeMap.medium;
-      terminalRef.current.options.fontSize = size;
-      fitAddonRef.current?.fit();
-    }
-  }, [settings?.terminalFontSize]);
+  }, [options.onData]);
 
   const write = useCallback((data: string) => {
     terminalRef.current?.write(data);
@@ -198,63 +99,57 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     terminalRef.current?.focus();
   }, []);
 
-  const scrollToBottom = useCallback(() => {
-    terminalRef.current?.scrollToBottom();
-  }, []);
-
   const fit = useCallback(() => {
     fitAddonRef.current?.fit();
   }, []);
 
   const getSize = useCallback(() => {
-    const term = terminalRef.current;
-    if (term) {
-      return { cols: term.cols, rows: term.rows };
+    if (fitAddonRef.current && terminalRef.current) {
+      fitAddonRef.current.fit();
+      return {
+        cols: terminalRef.current.cols,
+        rows: terminalRef.current.rows,
+      };
     }
     return { cols: 80, rows: 24 };
   }, []);
 
   const getBufferText = useCallback(() => {
-    const term = terminalRef.current;
-    if (!term) return '';
-
-    const buffer = term.buffer.active;
-    const lines: string[] = [];
-
-    for (let i = 0; i < buffer.length; i += 1) {
-      const line = buffer.getLine(i)?.translateToString(true) ?? '';
-      lines.push(line);
+    if (!terminalRef.current) return '';
+    const buffer = terminalRef.current.buffer.active;
+    let text = '';
+    for (let i = 0; i < buffer.length; i++) {
+      const line = buffer.getLine(i);
+      if (line) text += line.translateToString(true) + '\n';
     }
-
-    return lines.join('\n').trimEnd();
+    return text.trimEnd();
   }, []);
 
-  const getLastBlock = useCallback((maxLines = 80) => {
-    const term = terminalRef.current;
-    if (!term) return '';
-
-    const buffer = term.buffer.active;
+  const getLastBlock = useCallback(() => {
+    if (!terminalRef.current) return '';
+    const buffer = terminalRef.current.buffer.active;
     const lines: string[] = [];
 
-    // Walk from bottom, skip trailing empties
-    let seenText = false;
-    for (let i = buffer.length - 1; i >= 0 && lines.length < maxLines; i -= 1) {
-      const raw = buffer.getLine(i)?.translateToString(true) ?? '';
-      const trimmed = raw.trimEnd();
-
-      if (!seenText && trimmed.length === 0) {
-        continue; // skip blank tail
-      }
-
-      seenText = true;
-      if (seenText && trimmed.length === 0) {
-        break; // stop at first blank after content -> treat as block separator
-      }
-
-      lines.push(trimmed);
+    // Leer últimas líneas del buffer
+    for (let i = 0; i < buffer.length; i++) {
+      const line = buffer.getLine(i);
+      if (line) lines.push(line.translateToString(true));
     }
 
-    return lines.reverse().join('\n').trimEnd();
+    // Buscar desde el final hacia arriba el último prompt
+    let lastPromptIndex = lines.length - 1;
+    for (let i = lines.length - 2; i >= 0; i--) {
+      if (lines[i].match(/[$#>]\s*$/)) {
+        lastPromptIndex = i;
+        break;
+      }
+    }
+
+    return lines.slice(Math.max(0, lastPromptIndex)).join('\n').trim();
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    terminalRef.current?.scrollToBottom();
   }, []);
 
   // Cleanup on unmount

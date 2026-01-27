@@ -1,98 +1,105 @@
-//! SSH Connection module for ORI-SSHManager using native SSH (ssh2)
-//! Cross-platform: works on macOS, Windows, and Linux without external dependencies
+//! SSH Connection module for SSH Manager
 
-use ssh2::Session;
+use ssh2::{Session as SshSession, Channel};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
 use thiserror::Error;
 use uuid::Uuid;
+use tauri::Emitter;
 
 #[derive(Error, Debug)]
 pub enum SshError {
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
+    #[error("Authentication failed: {0}")]
+    AuthFailed(String),
+    #[error("Channel error: {0}")]
+    ChannelError(String),
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("SSH2 error: {0}")]
+    Ssh2Error(#[from] ssh2::Error),
     #[error("Session not found: {0}")]
     SessionNotFound(String),
-    #[error("PTY error: {0}")]
-    PtyError(String),
 }
 
-/// Wrapper for the SSH channel that can be sent between threads
-struct ChannelWrapper {
-    channel: ssh2::Channel,
+struct SshChannelInner {
+    session: SshSession,
+    channel: Channel,
+    _stream: TcpStream,
 }
-
-// Safety: ssh2::Channel is not Send by default, but we ensure thread-safe access via Mutex
-unsafe impl Send for ChannelWrapper {}
 
 pub struct SshChannel {
-    channel: Arc<Mutex<ChannelWrapper>>,
-    session: Arc<Mutex<Session>>,
     #[allow(dead_code)]
-    jump_session: Option<Arc<Mutex<Session>>>,
-    is_connected: Arc<Mutex<bool>>,
+    pub id: String,
+    inner: Arc<Mutex<SshChannelInner>>,
+    running: Arc<Mutex<bool>>,
 }
 
 pub struct SshManager {
     channels: Mutex<HashMap<String, SshChannel>>,
+    dead_channels: Mutex<Vec<String>>,
 }
 
 impl SshManager {
     pub fn new() -> Self {
         SshManager {
             channels: Mutex::new(HashMap::new()),
+            dead_channels: Mutex::new(Vec::new()),
         }
     }
 
-    fn create_session(host: &str, port: u16, username: &str, password: &str) -> Result<(Session, TcpStream), SshError> {
-        log::info!("Creating SSH session to {}@{}:{}", username, host, port);
+    /// Mark a channel as dead (to be cleaned up)
+    fn mark_dead(&self, channel_id: &str) {
+        if let Ok(mut dead) = self.dead_channels.lock() {
+            if !dead.contains(&channel_id.to_string()) {
+                dead.push(channel_id.to_string());
+            }
+        }
+    }
 
-        let tcp = TcpStream::connect_timeout(
-            &format!("{}:{}", host, port).parse().map_err(|e| {
-                SshError::ConnectionFailed(format!("Invalid address: {}", e))
-            })?,
-            Duration::from_secs(30),
-        ).map_err(|e| SshError::ConnectionFailed(format!("TCP connect failed: {}", e)))?;
+    /// Clean up dead channels - call periodically or before operations
+    pub fn cleanup_dead_channels(&self) {
+        let dead_ids: Vec<String> = {
+            let mut dead = self.dead_channels.lock().unwrap();
+            std::mem::take(&mut *dead)
+        };
 
-        tcp.set_read_timeout(Some(Duration::from_secs(30))).ok();
-        tcp.set_write_timeout(Some(Duration::from_secs(30))).ok();
-        tcp.set_nodelay(true).ok();
-
-        let mut session = Session::new()
-            .map_err(|e| SshError::ConnectionFailed(format!("Failed to create SSH session: {}", e)))?;
-
-        session.set_tcp_stream(tcp.try_clone().map_err(|e| {
-            SshError::ConnectionFailed(format!("Failed to clone TCP stream: {}", e))
-        })?);
-
-        session.handshake()
-            .map_err(|e| SshError::ConnectionFailed(format!("SSH handshake failed: {}", e)))?;
-
-        session.userauth_password(username, password)
-            .map_err(|e| SshError::ConnectionFailed(format!("Authentication failed: {}", e)))?;
-
-        if !session.authenticated() {
-            return Err(SshError::ConnectionFailed("Authentication failed".to_string()));
+        if dead_ids.is_empty() {
+            return;
         }
 
-        log::info!("SSH session authenticated successfully");
-        Ok((session, tcp))
+        let mut channels = self.channels.lock().unwrap();
+        for id in dead_ids {
+            if let Some(ssh) = channels.remove(&id) {
+                // Signal thread to stop
+                if let Ok(mut running) = ssh.running.lock() {
+                    *running = false;
+                }
+                // Try to close channel
+                if let Ok(mut inner) = ssh.inner.lock() {
+                    inner.channel.send_eof().ok();
+                    inner.channel.close().ok();
+                }
+                log::info!("Cleaned up dead channel: {}", id);
+            }
+        }
     }
 
     pub fn connect(
         &self,
-        app_handle: &AppHandle,
+        app: &tauri::AppHandle,
         host: &str,
         port: u16,
         username: &str,
-        password: &str,
+        auth_method: &str,
+        password: Option<&str>,
+        private_key_path: Option<&str>,
+        private_key_passphrase: Option<&str>,
         jump_host: Option<&str>,
         jump_port: Option<u16>,
         jump_username: Option<&str>,
@@ -100,277 +107,184 @@ impl SshManager {
         cols: Option<u16>,
         rows: Option<u16>,
     ) -> Result<String, SshError> {
-        let initial_cols = cols.unwrap_or(80);
-        let initial_rows = rows.unwrap_or(24);
+        // Clean up any dead channels first
+        self.cleanup_dead_channels();
 
-        log::info!(
-            "Attempting SSH connection to {}@{}:{} ({}x{})",
-            username, host, port, initial_cols, initial_rows
-        );
-
-        let (session, jump_session): (Session, Option<Session>) = if let Some(jhost) = jump_host {
-            // Connect via jump host using SSH tunneling
-            let jport = jump_port.unwrap_or(22);
-            let juser = jump_username.unwrap_or(username);
-            let jpass = jump_password.unwrap_or(password);
-
-            log::info!("Connecting via jump host {}@{}:{}", juser, jhost, jport);
-
-            // First, connect to jump host
-            let (jump_sess, _jump_tcp) = Self::create_session(jhost, jport, juser, jpass)?;
-
-            // Create a shell session on the jump host
-            let mut shell_channel = jump_sess.channel_session()
-                .map_err(|e| SshError::ConnectionFailed(format!("Jump shell channel failed: {}", e)))?;
-
-            // Request PTY for the jump session
-            shell_channel.request_pty("xterm-256color", None, Some((
-                initial_cols as u32,
-                initial_rows as u32,
-                0,
-                0,
-            ))).map_err(|e| SshError::ConnectionFailed(format!("Jump PTY request failed: {}", e)))?;
-
-            // Start shell on jump host
-            shell_channel.shell()
-                .map_err(|e| SshError::ConnectionFailed(format!("Jump shell start failed: {}", e)))?;
-
-            // Wait for shell to initialize
-            std::thread::sleep(std::time::Duration::from_millis(500));
-
-            // Now send SSH command to connect to the final destination
-            let ssh_command = format!(
-                "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {} {}@{}\n",
-                port, username, host
-            );
-            shell_channel.write_all(ssh_command.as_bytes())
-                .map_err(|e| SshError::ConnectionFailed(format!("SSH command send failed: {}", e)))?;
-            shell_channel.flush()
-                .map_err(|e| SshError::ConnectionFailed(format!("SSH command flush failed: {}", e)))?;
-
-            // Wait for SSH to prompt for password
-            std::thread::sleep(std::time::Duration::from_millis(1500));
-
-            // Send password
-            shell_channel.write_all(format!("{}\n", password).as_bytes())
-                .map_err(|e| SshError::ConnectionFailed(format!("Password send failed: {}", e)))?;
-            shell_channel.flush()
-                .map_err(|e| SshError::ConnectionFailed(format!("Password flush failed: {}", e)))?;
-
-            // Wait for connection to establish
-            std::thread::sleep(std::time::Duration::from_millis(1000));
-
-            // Set session to non-blocking
-            jump_sess.set_blocking(false);
-
-            let channel_id = Uuid::new_v4().to_string();
-            let is_connected = Arc::new(Mutex::new(true));
-            let channel_wrapper = Arc::new(Mutex::new(ChannelWrapper { channel: shell_channel }));
-            let session_arc = Arc::new(Mutex::new(jump_sess));
-
-            // Spawn reader thread for jump host connection
-            let connected_clone = is_connected.clone();
-            let channel_id_clone = channel_id.clone();
-            let app_handle_clone = app_handle.clone();
-            let channel_clone = channel_wrapper.clone();
-
-            thread::spawn(move || {
-                let mut buf = [0u8; 8192];
-                log::info!("Reader thread started for jump channel {}", channel_id_clone);
-
-                loop {
-                    if !*connected_clone.lock().unwrap() {
-                        break;
-                    }
-
-                    let read_result = {
-                        let mut locked = channel_clone.lock().unwrap();
-                        locked.channel.read(&mut buf)
-                    };
-
-                    match read_result {
-                        Ok(0) => {
-                            let is_eof = {
-                                let locked = channel_clone.lock().unwrap();
-                                locked.channel.eof()
-                            };
-
-                            if is_eof {
-                                log::info!("SSH channel EOF for {}", channel_id_clone);
-                                *connected_clone.lock().unwrap() = false;
-                                let _ = app_handle_clone.emit("pty_closed", &channel_id_clone);
-                                break;
-                            }
-                            thread::sleep(Duration::from_millis(10));
-                        }
-                        Ok(n) => {
-                            let data = String::from_utf8_lossy(&buf[0..n]).to_string();
-                            let payload = serde_json::json!({
-                                "channelId": channel_id_clone,
-                                "data": data
-                            });
-                            let _ = app_handle_clone.emit("pty_output", &payload);
-                        }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(10));
-                        }
-                        Err(e) => {
-                            if e.kind() != std::io::ErrorKind::Interrupted {
-                                log::warn!("SSH read error: {}", e);
-                                *connected_clone.lock().unwrap() = false;
-                                let _ = app_handle_clone.emit("pty_closed", &channel_id_clone);
-                                break;
-                            }
-                        }
-                    }
-                }
-                log::info!("Reader thread ended for jump channel {}", channel_id_clone);
-            });
-
-            let ssh_channel = SshChannel {
-                channel: channel_wrapper,
-                session: session_arc,
-                jump_session: None,
-                is_connected,
-            };
-
-            self.channels.lock().unwrap().insert(channel_id.clone(), ssh_channel);
-            return Ok(channel_id);
+        let stream = if let Some(jhost) = jump_host {
+            self.connect_via_jump(
+                jhost,
+                jump_port.unwrap_or(22),
+                jump_username.unwrap_or(username),
+                jump_password.unwrap_or(password.unwrap_or("")),
+                host,
+                port,
+            )?
         } else {
-            // Direct connection
-            let (sess, _tcp) = Self::create_session(host, port, username, password)?;
-            (sess, None)
+            TcpStream::connect(format!("{}:{}", host, port))
+                .map_err(|e| SshError::ConnectionFailed(e.to_string()))?
         };
 
-        // Request PTY and shell
-        let mut channel = session.channel_session()
-            .map_err(|e| SshError::ConnectionFailed(format!("Channel open failed: {}", e)))?;
+        stream.set_read_timeout(Some(Duration::from_millis(100))).ok();
+        stream.set_write_timeout(Some(Duration::from_secs(10))).ok();
 
-        // Request PTY with size
-        channel.request_pty("xterm-256color", None, Some((
-            initial_cols as u32,
-            initial_rows as u32,
-            0,
-            0,
-        ))).map_err(|e| SshError::ConnectionFailed(format!("PTY request failed: {}", e)))?;
+        let mut session = SshSession::new()?;
+        session.set_tcp_stream(stream.try_clone()?);
+        session.handshake()?;
 
-        // Start shell
-        channel.shell()
-            .map_err(|e| SshError::ConnectionFailed(format!("Shell start failed: {}", e)))?;
+        // Authenticate based on method
+        match auth_method {
+            "key" => {
+                let key_path = private_key_path
+                    .ok_or_else(|| SshError::AuthFailed("No private key path provided".to_string()))?;
+                let key_path = std::path::Path::new(key_path);
 
-        // Set session to non-blocking for reading
+                if !key_path.exists() {
+                    return Err(SshError::AuthFailed(format!("Key file not found: {}", key_path.display())));
+                }
+
+                session.userauth_pubkey_file(
+                    username,
+                    None, // public key (auto-derived)
+                    key_path,
+                    private_key_passphrase,
+                ).map_err(|e| SshError::AuthFailed(format!("Key auth failed: {}", e)))?;
+            }
+            _ => {
+                // Default to password auth
+                let pwd = password.unwrap_or("");
+                session.userauth_password(username, pwd)
+                    .map_err(|e| SshError::AuthFailed(e.to_string()))?;
+            }
+        }
+
+        let mut channel = session.channel_session()?;
+
+        let term_cols = cols.unwrap_or(80) as u32;
+        let term_rows = rows.unwrap_or(24) as u32;
+
+        channel.request_pty("xterm-256color", None, Some((term_cols, term_rows, 0, 0)))?;
+        channel.shell()?;
+
         session.set_blocking(false);
 
         let channel_id = Uuid::new_v4().to_string();
-        let is_connected = Arc::new(Mutex::new(true));
-        let channel_wrapper = Arc::new(Mutex::new(ChannelWrapper { channel }));
-        let session_arc = Arc::new(Mutex::new(session));
-        let jump_session_arc = jump_session.map(|s| Arc::new(Mutex::new(s)));
 
-        // Spawn a reader thread
-        let connected_clone = is_connected.clone();
+        let inner = Arc::new(Mutex::new(SshChannelInner {
+            session,
+            channel,
+            _stream: stream,
+        }));
+
+        let running = Arc::new(Mutex::new(true));
+
+        let ssh_channel = SshChannel {
+            id: channel_id.clone(),
+            inner: inner.clone(),
+            running: running.clone(),
+        };
+
+        // Spawn reader thread
+        let app_handle = app.clone();
         let channel_id_clone = channel_id.clone();
-        let app_handle_clone = app_handle.clone();
-        let channel_clone = channel_wrapper.clone();
+        let inner_clone = inner.clone();
+        let running_clone = running.clone();
 
         thread::spawn(move || {
-            let mut buf = [0u8; 8192];
-            log::info!("Reader thread started for channel {}", channel_id_clone);
+            let mut buf = vec![0u8; 8192];
 
             loop {
-                // Check if still connected
-                if !*connected_clone.lock().unwrap() {
-                    log::info!("Reader thread: channel {} marked as disconnected", channel_id_clone);
-                    break;
+                // Check if we should stop
+                {
+                    let is_running = running_clone.lock().unwrap();
+                    if !*is_running {
+                        break;
+                    }
                 }
 
+                // Try to read from channel
                 let read_result = {
-                    let mut locked = channel_clone.lock().unwrap();
-                    locked.channel.read(&mut buf)
+                    let mut inner_guard = match inner_clone.lock() {
+                        Ok(guard) => guard,
+                        Err(_) => break,
+                    };
+
+                    inner_guard.channel.read(&mut buf)
                 };
 
                 match read_result {
-                    Ok(0) => {
-                        // Check if channel is at EOF
+                    Ok(n) if n > 0 => {
+                        let data = String::from_utf8_lossy(&buf[0..n]).to_string();
+                        let _ = app_handle.emit("pty_output", serde_json::json!({
+                            "channelId": channel_id_clone,
+                            "data": data
+                        }));
+                    }
+                    Ok(_) => {
+                        // No data, check if channel is closed
                         let is_eof = {
-                            let locked = channel_clone.lock().unwrap();
-                            locked.channel.eof()
+                            let inner_guard = match inner_clone.lock() {
+                                Ok(guard) => guard,
+                                Err(_) => break,
+                            };
+                            inner_guard.channel.eof()
                         };
 
                         if is_eof {
-                            log::info!("SSH channel EOF for {}", channel_id_clone);
-                            *connected_clone.lock().unwrap() = false;
-                            let _ = app_handle_clone.emit("pty_closed", &channel_id_clone);
+                            let _ = app_handle.emit("pty_closed", &channel_id_clone);
                             break;
                         }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         // No data available, sleep briefly
                         thread::sleep(Duration::from_millis(10));
                     }
-                    Ok(n) => {
-                        let data = String::from_utf8_lossy(&buf[0..n]).to_string();
-                        let payload = serde_json::json!({
-                            "channelId": channel_id_clone,
-                            "data": data
-                        });
-
-                        if let Err(e) = app_handle_clone.emit("pty_output", &payload) {
-                            log::warn!("Failed to emit pty_output: {}", e);
-                        }
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // Non-blocking read, no data available
-                        thread::sleep(Duration::from_millis(10));
-                    }
-                    Err(e) => {
-                        // Check if it's just a temporary error
-                        if e.kind() != std::io::ErrorKind::Interrupted {
-                            log::warn!("SSH read error: {}", e);
-                            *connected_clone.lock().unwrap() = false;
-                            let _ = app_handle_clone.emit("pty_closed", &channel_id_clone);
-                            break;
-                        }
+                    Err(_) => {
+                        // Error reading, channel probably closed
+                        let _ = app_handle.emit("pty_closed", &channel_id_clone);
+                        break;
                     }
                 }
             }
-            log::info!("Reader thread ended for channel {}", channel_id_clone);
+
+            log::info!("Reader thread for {} exited", channel_id_clone);
         });
 
-        let ssh_channel = SshChannel {
-            channel: channel_wrapper,
-            session: session_arc,
-            jump_session: jump_session_arc,
-            is_connected,
-        };
-
         self.channels.lock().unwrap().insert(channel_id.clone(), ssh_channel);
-
         Ok(channel_id)
     }
 
-    pub fn send_command(&self, channel_id: &str, data: &str) -> Result<(), SshError> {
-        log::debug!("send_command called: channel={}, data_len={}", channel_id, data.len());
+    fn connect_via_jump(
+        &self,
+        jump_host: &str,
+        jump_port: u16,
+        jump_username: &str,
+        jump_password: &str,
+        target_host: &str,
+        target_port: u16,
+    ) -> Result<TcpStream, SshError> {
+        let jump_stream = TcpStream::connect(format!("{}:{}", jump_host, jump_port))
+            .map_err(|e| SshError::ConnectionFailed(format!("Jump host: {}", e)))?;
 
+        let mut jump_session = SshSession::new()?;
+        jump_session.set_tcp_stream(jump_stream.try_clone()?);
+        jump_session.handshake()?;
+        jump_session.userauth_password(jump_username, jump_password)
+            .map_err(|e| SshError::AuthFailed(format!("Jump auth: {}", e)))?;
+
+        let _channel = jump_session.channel_direct_tcpip(target_host, target_port, None)
+            .map_err(|e| SshError::ChannelError(e.to_string()))?;
+
+        Ok(jump_stream)
+    }
+
+    pub fn send_command(&self, channel_id: &str, cmd: &str) -> Result<(), SshError> {
         let channels = self.channels.lock().unwrap();
         let ssh = channels.get(channel_id)
             .ok_or_else(|| SshError::SessionNotFound(channel_id.to_string()))?;
 
-        // Set session to blocking for write
-        {
-            let session = ssh.session.lock().unwrap();
-            session.set_blocking(true);
-        }
-
-        let mut channel = ssh.channel.lock().unwrap();
-        channel.channel.write_all(data.as_bytes())?;
-        channel.channel.flush()?;
-
-        // Set back to non-blocking
-        {
-            let session = ssh.session.lock().unwrap();
-            session.set_blocking(false);
-        }
-
-        log::debug!("send_command success: {} bytes sent", data.len());
+        let mut inner = ssh.inner.lock().unwrap();
+        inner.channel.write_all(cmd.as_bytes())?;
+        inner.channel.flush()?;
         Ok(())
     }
 
@@ -379,50 +293,49 @@ impl SshManager {
         let ssh = channels.get(channel_id)
             .ok_or_else(|| SshError::SessionNotFound(channel_id.to_string()))?;
 
-        // Set session to blocking for PTY resize
-        {
-            let session = ssh.session.lock().unwrap();
-            session.set_blocking(true);
-        }
+        let mut inner = ssh.inner.lock().unwrap();
 
-        let result = {
-            let mut channel = ssh.channel.lock().unwrap();
-            channel.channel.request_pty_size(cols as u32, rows as u32, None, None)
-        };
+        // Temporarily set blocking to true for resize operation
+        inner.session.set_blocking(true);
+        let result = inner.channel.request_pty_size(cols as u32, rows as u32, None, None);
+        inner.session.set_blocking(false);
 
-        // Set back to non-blocking
-        {
-            let session = ssh.session.lock().unwrap();
-            session.set_blocking(false);
-        }
-
-        result.map_err(|e| SshError::PtyError(format!("Resize failed: {}", e)))?;
-
-        log::debug!("Resized PTY {} to {}x{}", channel_id, cols, rows);
+        result.map_err(|e| SshError::ChannelError(format!("Resize failed: {}", e)))?;
         Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn read_output(&self, channel_id: &str) -> Result<String, SshError> {
+        let channels = self.channels.lock().unwrap();
+        let ssh = channels.get(channel_id)
+            .ok_or_else(|| SshError::SessionNotFound(channel_id.to_string()))?;
+
+        let mut inner = ssh.inner.lock().unwrap();
+
+        let mut buf = vec![0u8; 4096];
+        match inner.channel.read(&mut buf) {
+            Ok(n) if n > 0 => Ok(String::from_utf8_lossy(&buf[0..n]).to_string()),
+            Ok(_) => Ok(String::new()),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(String::new()),
+            Err(e) => Err(SshError::IoError(e)),
+        }
     }
 
     pub fn disconnect(&self, channel_id: &str) -> Result<(), SshError> {
         let mut channels = self.channels.lock().unwrap();
         if let Some(ssh) = channels.remove(channel_id) {
-            // Mark as disconnected to stop reader thread
-            *ssh.is_connected.lock().unwrap() = false;
-
-            // Try to close gracefully
+            // Signal the reader thread to stop
             {
-                let session = ssh.session.lock().unwrap();
-                session.set_blocking(true);
+                let mut running = ssh.running.lock().unwrap();
+                *running = false;
             }
 
-            {
-                let mut channel = ssh.channel.lock().unwrap();
-                let _ = channel.channel.write_all(b"exit\n");
-                let _ = channel.channel.flush();
-                let _ = channel.channel.send_eof();
-                let _ = channel.channel.wait_close();
+            // Close the channel
+            if let Ok(mut inner) = ssh.inner.lock() {
+                inner.channel.send_eof().ok();
+                inner.channel.close().ok();
+                inner.channel.wait_close().ok();
             }
-
-            log::info!("SSH session {} disconnected", channel_id);
         }
         Ok(())
     }

@@ -10,19 +10,24 @@ export interface SessionGroup {
   order: number;
 }
 
+export type AuthMethod = 'password' | 'key';
+
 export interface Session {
   id: string;
   name: string;
   host: string;
   port: number;
   username: string;
+  authMethod: AuthMethod;
   password?: string;
+  privateKeyPath?: string;
+  privateKeyPassphrase?: string;
   jumpHost?: string;
   jumpPort?: number;
   jumpUsername?: string;
   jumpPassword?: string;
   color: SessionColor;
-  groupId?: string | null; // Optional group assignment (null when not in a group)
+  groupId?: string | null;
   createdAt: string;
 }
 
@@ -62,7 +67,10 @@ export interface ConnectParams {
   host: string;
   port: number;
   username: string;
-  password: string;
+  authMethod: AuthMethod;
+  password?: string;
+  privateKeyPath?: string;
+  privateKeyPassphrase?: string;
   jumpHost?: string;
   jumpPort?: number;
   jumpUsername?: string;

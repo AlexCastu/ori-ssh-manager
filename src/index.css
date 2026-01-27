@@ -2,9 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Modern Theme System - Light and Dark modes */
+/* Modern Dark Theme - Professional Grayscale */
 @layer base {
-  /* Dark Theme (default) */
   :root,
   :root.dark {
     --background: 0 0% 7%;
@@ -35,77 +34,14 @@
     --text-primary: #fafafa;
     --text-secondary: #a1a1aa;
     --text-muted: #71717a;
-
-    /* Sidebar specific */
-    --sidebar-bg: rgba(24, 24, 27, 0.5);
-    --sidebar-item-hover: rgba(39, 39, 42, 0.5);
-    --sidebar-item-active: #27272a;
-    --sidebar-border: rgba(39, 39, 42, 0.5);
-
-    /* Dropdown/Menu */
-    --dropdown-bg: #27272a;
-    --dropdown-border: #3f3f46;
-    --dropdown-item-hover: #3f3f46;
-
-    color-scheme: dark;
-  }
-
-  /* Light Theme */
-  :root.light {
-    --background: 0 0% 98%;
-    --foreground: 0 0% 10%;
-
-    /* Primary Colors */
-    --theme-primary: #18181b;
-    --theme-secondary: #52525b;
-    --theme-accent: #2563eb;
-    --theme-success: #16a34a;
-    --theme-error: #dc2626;
-    --theme-warning: #d97706;
-
-    /* Background tones */
-    --bg-base: #f4f4f5;
-    --bg-elevated: #ffffff;
-    --bg-surface: #e4e4e7;
-    --bg-hover: #d4d4d8;
-
-    /* Glass effects */
-    --glass-card-bg: rgba(255, 255, 255, 0.9);
-    --glass-sidebar-bg: rgba(250, 250, 250, 0.95);
-    --glass-border: rgba(212, 212, 216, 0.8);
-    --glass-border-light: rgba(212, 212, 216, 0.5);
-    --glass-border-hover: rgba(161, 161, 170, 0.6);
-
-    /* Text colors */
-    --text-primary: #18181b;
-    --text-secondary: #52525b;
-    --text-muted: #71717a;
-
-    /* Sidebar specific */
-    --sidebar-bg: rgba(255, 255, 255, 0.8);
-    --sidebar-item-hover: rgba(228, 228, 231, 0.5);
-    --sidebar-item-active: #e4e4e7;
-    --sidebar-border: rgba(228, 228, 231, 0.8);
-
-    /* Dropdown/Menu */
-    --dropdown-bg: #ffffff;
-    --dropdown-border: #e4e4e7;
-    --dropdown-item-hover: #f4f4f5;
-
-    color-scheme: light;
   }
 
   * {
     border-color: var(--glass-border-light);
   }
 
-  html, body {
-    height: 100%;
-    overflow: hidden; /* Prevent page scroll bounce */
-  }
-
   body {
-    @apply antialiased transition-colors duration-200;
+    @apply antialiased;
     color: var(--text-primary);
     background: var(--bg-base);
     font-feature-settings: "rlig" 1, "calt" 1;
@@ -113,42 +49,23 @@
     min-height: 100vh;
   }
 
-  /* Elegant scrollbar - dark mode */
-  :root.dark ::-webkit-scrollbar {
+  /* Elegant scrollbar */
+  ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
 
-  :root.dark ::-webkit-scrollbar-track {
+  ::-webkit-scrollbar-track {
     background: transparent;
   }
 
-  :root.dark ::-webkit-scrollbar-thumb {
+  ::-webkit-scrollbar-thumb {
     background: #3f3f46;
     border-radius: 9999px;
   }
 
-  :root.dark ::-webkit-scrollbar-thumb:hover {
+  ::-webkit-scrollbar-thumb:hover {
     background: #52525b;
-  }
-
-  /* Elegant scrollbar - light mode */
-  :root.light ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-
-  :root.light ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  :root.light ::-webkit-scrollbar-thumb {
-    background: #d4d4d8;
-    border-radius: 9999px;
-  }
-
-  :root.light ::-webkit-scrollbar-thumb:hover {
-    background: #a1a1aa;
   }
 
   ::selection {
@@ -271,19 +188,10 @@
     }
   }
 
-  /* Main app background - theme aware */
+  /* Main app background - clean dark gradient */
   .gradient-mesh {
-    background: var(--bg-base);
-    position: relative;
-    transition: background 0.2s ease;
-  }
-
-  :root.dark .gradient-mesh {
     background: linear-gradient(180deg, #09090b 0%, #0a0a0c 50%, #09090b 100%);
-  }
-
-  :root.light .gradient-mesh {
-    background: linear-gradient(180deg, #f4f4f5 0%, #fafafa 50%, #f4f4f5 100%);
+    position: relative;
   }
 
   .gradient-mesh::before {
@@ -295,10 +203,6 @@
     height: 50%;
     background: radial-gradient(ellipse at 100% 0%, rgba(59, 130, 246, 0.03) 0%, transparent 60%);
     pointer-events: none;
-  }
-
-  :root.light .gradient-mesh::before {
-    background: radial-gradient(ellipse at 100% 0%, rgba(37, 99, 235, 0.05) 0%, transparent 60%);
   }
 
   /* Subtle glow */
@@ -323,39 +227,5 @@
 
   .titlebar-no-drag {
     -webkit-app-region: no-drag;
-  }
-
-  /* XTerm.js terminal styling */
-  .xterm {
-    height: 100%;
-    width: 100%;
-    overflow: hidden;
-  }
-
-  .xterm-viewport {
-    overflow-y: auto !important;
-    overscroll-behavior: contain; /* Stop outer scroll when reaching edges */
-    height: 100% !important;
-    padding-right: 8px; /* balanced right padding */
-    box-sizing: border-box;
-    scrollbar-gutter: stable both-edges;
-  }
-
-  .xterm-screen {
-    height: 100% !important;
-    overflow: hidden;
-  }
-
-  /* Add breathing room inside the text rows */
-  .xterm-rows {
-    padding-right: 8px !important;
-    padding-bottom: 8px !important;
-    box-sizing: border-box;
-  }
-
-  /* Ensure terminal can receive focus */
-  .xterm-helper-textarea {
-    position: absolute !important;
-    opacity: 0 !important;
   }
 }

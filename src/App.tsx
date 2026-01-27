@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Terminal } from 'lucide-react';
 import { useStore } from './store/useStore';
 import { useTheme } from './contexts/ThemeContext';
+import { sshService } from './hooks/sshService';
 import {
   Sidebar,
   SessionModal,
@@ -19,6 +20,7 @@ function App() {
   const { isDark } = useTheme();
 
   useEffect(() => {
+    sshService.initialize();
     initialize();
   }, [initialize]);
 
