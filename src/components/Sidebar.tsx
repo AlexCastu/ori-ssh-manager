@@ -12,7 +12,6 @@ import {
   FolderOpen,
   MoreVertical,
   GripVertical,
-  FolderInput,
   Settings,
   Search,
   X,
@@ -766,14 +765,10 @@ export function Sidebar() {
       </div>
 
       {/* Settings button at bottom */}
-      <div className={`p-3 border-t ${isDark ? 'border-zinc-800/50' : 'border-zinc-200'}`}>
+      <div className="p-3 border-t border-zinc-800/50">
         <button
           onClick={() => openSettingsModal()}
-          className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
-            isDark
-              ? 'hover:bg-zinc-800 text-zinc-400 hover:text-white'
-              : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900'
-          }`}
+          className="w-full flex items-center gap-3 p-2 rounded-lg transition-colors hover:bg-zinc-800 text-zinc-400 hover:text-white"
           title="Configuración"
         >
           <Settings className="w-5 h-5" />

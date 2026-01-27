@@ -68,7 +68,7 @@ class SSHService {
   private static instance: SSHService;
   private callbacks = new Map<string, (data: string) => void>();
   private reconnectConfigs = new Map<string, ReconnectConfig>();
-  private reconnectTimers = new Map<string, NodeJS.Timeout>();
+  private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private initialized = false;
   private outputUnlisten: (() => void) | null = null;
   private closedUnlisten: (() => void) | null = null;
