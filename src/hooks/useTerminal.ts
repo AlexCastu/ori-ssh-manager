@@ -13,6 +13,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const initTerminal = useCallback((container: HTMLDivElement) => {
     if (terminalRef.current) {
@@ -70,14 +71,18 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     fitAddonRef.current = fitAddon;
     containerRef.current = container;
 
-    // Handle resize
+    // Handle resize with debounce to avoid excessive fit() calls
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
-      options.onResize?.(terminal.cols, terminal.rows);
+      if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
+      resizeTimerRef.current = setTimeout(() => {
+        fitAddon.fit();
+        options.onResize?.(terminal.cols, terminal.rows);
+      }, 50);
     });
     resizeObserver.observe(container);
 
     return () => {
+      if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       resizeObserver.disconnect();
       terminal.dispose();
     };
@@ -114,38 +119,64 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     return { cols: 80, rows: 24 };
   }, []);
 
+  // Strip ANSI escape codes from text
+  const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+
   const getBufferText = useCallback(() => {
     if (!terminalRef.current) return '';
     const buffer = terminalRef.current.buffer.active;
-    let text = '';
+    const lines: string[] = [];
     for (let i = 0; i < buffer.length; i++) {
       const line = buffer.getLine(i);
-      if (line) text += line.translateToString(true) + '\n';
+      if (line) lines.push(line.translateToString(true));
     }
-    return text.trimEnd();
+    // Remove trailing empty lines
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+      lines.pop();
+    }
+    return lines.join('\n');
   }, []);
 
   const getLastBlock = useCallback(() => {
     if (!terminalRef.current) return '';
     const buffer = terminalRef.current.buffer.active;
+    const cursorY = buffer.cursorY + buffer.viewportY;
     const lines: string[] = [];
 
-    // Leer últimas líneas del buffer
-    for (let i = 0; i < buffer.length; i++) {
+    // Read lines up to cursor position
+    for (let i = 0; i <= Math.min(cursorY, buffer.length - 1); i++) {
       const line = buffer.getLine(i);
       if (line) lines.push(line.translateToString(true));
     }
 
-    // Buscar desde el final hacia arriba el último prompt
-    let lastPromptIndex = lines.length - 1;
-    for (let i = lines.length - 2; i >= 0; i--) {
-      if (lines[i].match(/[$#>]\s*$/)) {
-        lastPromptIndex = i;
-        break;
+    if (lines.length === 0) return '';
+
+    // Prompt detection: look for common shell prompt patterns
+    // Matches: user@host:~$, [user@host ~]$, root#, $, #, %, >, etc.
+    const promptRegex = /[$#%>]\s*$/;
+
+    // Find the second-to-last prompt (the one before the current prompt)
+    // This gives us the last command + its output
+    let promptCount = 0;
+    let lastPromptIndex = 0;
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const stripped = stripAnsi(lines[i]).trim();
+      if (!stripped) continue;
+      if (promptRegex.test(stripped)) {
+        promptCount++;
+        if (promptCount === 2) {
+          lastPromptIndex = i;
+          break;
+        }
       }
     }
 
-    return lines.slice(Math.max(0, lastPromptIndex)).join('\n').trim();
+    const result = lines.slice(lastPromptIndex)
+      .join('\n')
+      .trim();
+
+    return stripAnsi(result);
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -155,6 +186,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       terminalRef.current?.dispose();
     };
   }, []);

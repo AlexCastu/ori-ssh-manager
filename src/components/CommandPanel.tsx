@@ -8,13 +8,29 @@ import {
   ChevronDown,
   ChevronRight,
   Code,
+  Zap,
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { sshService } from '../hooks/sshService';
 
+// Default quick-access commands always available
+const DEFAULT_COMMANDS = [
+  { id: '_ls', name: 'List files', command: 'ls -la' },
+  { id: '_pwd', name: 'Current dir', command: 'pwd' },
+  { id: '_whoami', name: 'Who am I', command: 'whoami' },
+  { id: '_df', name: 'Disk usage', command: 'df -h' },
+  { id: '_free', name: 'Memory', command: 'free -h' },
+  { id: '_uptime', name: 'Uptime', command: 'uptime' },
+  { id: '_ps', name: 'Processes', command: 'ps aux --sort=-%mem | head -15' },
+  { id: '_net', name: 'Network', command: 'ip a 2>/dev/null || ifconfig' },
+  { id: '_ports', name: 'Open ports', command: 'ss -tulnp 2>/dev/null || netstat -tulnp' },
+  { id: '_uname', name: 'System info', command: 'uname -a' },
+];
+
 export function CommandPanel() {
   const { commands, tabs, activeTabId, deleteCommand, openCommandModal } = useStore();
   const [isExpanded, setIsExpanded] = useState(true);
+  const [quickExpanded, setQuickExpanded] = useState(true);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const canSendCommand = activeTab?.status === 'connected' && activeTab.channelId;
@@ -44,7 +60,7 @@ export function CommandPanel() {
         </button>
       </div>
 
-      {/* Commands List */}
+      {/* Content */}
       <AnimatePresence>
         {isExpanded && (
           <motion.div
@@ -53,7 +69,51 @@ export function CommandPanel() {
             exit={{ height: 0, opacity: 0 }}
             className="flex-1 overflow-y-auto"
           >
+            {/* Quick Access - Default Commands */}
+            <div className="border-b border-white/5">
+              <button
+                onClick={() => setQuickExpanded(!quickExpanded)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-zinc-500 hover:text-zinc-300 uppercase tracking-wider"
+              >
+                <Zap className="w-3 h-3" />
+                <span>Quick Access</span>
+                <ChevronDown className={`w-3 h-3 ml-auto transition-transform ${quickExpanded ? '' : '-rotate-90'}`} />
+              </button>
+
+              <AnimatePresence>
+                {quickExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                  >
+                    <div className="px-2 pb-2 grid grid-cols-2 gap-1">
+                      {DEFAULT_COMMANDS.map((cmd) => (
+                        <button
+                          key={cmd.id}
+                          onClick={() => executeCommand(cmd.command)}
+                          disabled={!canSendCommand}
+                          className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-left transition-colors hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed group"
+                          title={cmd.command}
+                        >
+                          <Play className="w-3 h-3 text-zinc-600 group-hover:text-green-400 shrink-0" />
+                          <span className="text-xs text-zinc-400 group-hover:text-zinc-200 truncate">{cmd.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* User Saved Commands */}
             <div className="p-2 space-y-1">
+              {commands.length > 0 && (
+                <div className="px-1 py-1.5 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                  Saved Commands
+                </div>
+              )}
+
               {commands.map((cmd) => (
                 <div
                   key={cmd.id}
@@ -88,8 +148,8 @@ export function CommandPanel() {
               ))}
 
               {commands.length === 0 && (
-                <div className="text-center py-6 text-zinc-500">
-                  <Code className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                <div className="text-center py-4 text-zinc-500">
+                  <Code className="w-5 h-5 mx-auto mb-1.5 opacity-50" />
                   <p className="text-xs">No saved commands</p>
                 </div>
               )}

@@ -3,7 +3,6 @@ import { X, Circle, RefreshCw, StopCircle, Copy, ClipboardList } from 'lucide-re
 import { useStore } from '../store/useStore';
 import { useTerminal } from '../hooks/useTerminal';
 import { sshService } from '../hooks/sshService';
-import { useTheme } from '../contexts/ThemeContext';
 
 interface TerminalViewProps {
   tabId: string;
@@ -15,14 +14,12 @@ const MAX_BUFFER_SIZE = 500 * 1024;
 // Trim buffer keeping only the last portion when it exceeds max size
 function trimBuffer(buffer: string, maxSize: number): string {
   if (buffer.length <= maxSize) return buffer;
-  // Keep the last 80% of max size to avoid frequent trimming
   const keepSize = Math.floor(maxSize * 0.8);
   return buffer.slice(-keepSize);
 }
 
 export function TerminalView({ tabId }: TerminalViewProps) {
   const { tabs, sessions, closeTab, updateTabStatus, settings, addToast, getTabBuffer, setTabBuffer } = useStore();
-  const { isDark } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const hasConnectedRef = useRef(false);
   const currentChannelRef = useRef<string | null>(null);
@@ -138,7 +135,6 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       if (channelToClean) {
         sshService.stopReading(channelToClean);
       }
-      // Disable auto-reconnect when unmounting
       sshService.disableAutoReconnect(tabId);
       const persisted = bufferRef.current || getBufferText();
       setTabBuffer(tabId, persisted || '');
@@ -160,17 +156,20 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       await sshService.disconnect(tabId, tab.channelId);
     }
 
-    writeln(`\r\n\x1b[33mReconnecting...\x1b[0m\r\n`);
+    writeln(`\r\n\x1b[33mReconnecting to ${session.name} (${session.host})...\x1b[0m`);
     updateTabStatus(tabId, 'connecting');
 
     const { cols, rows } = getSize();
     const channelId = await sshService.connect(tabId, session, cols, rows);
     if (channelId) {
+      currentChannelRef.current = channelId;
       setTimeout(() => fit(), 100);
       sshService.startReading(channelId, (data) => {
         write(data);
         bufferRef.current = trimBuffer(bufferRef.current + data, MAX_BUFFER_SIZE);
       });
+    } else {
+      writeln(`\x1b[31mReconnection failed.\x1b[0m`);
     }
   };
 
@@ -190,8 +189,11 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
   const sanitizeCopiedText = (raw: string) => {
     return raw
+      .replace(/\x1b\[[0-9;]*m/g, '') // Strip ANSI escape codes
       .split('\n')
       .filter((line) => !/^last login/i.test(line.trim()))
+      .filter((line) => !/^Connecting to /i.test(line.trim()))
+      .filter((line) => !/^Reconnecting to /i.test(line.trim()))
       .join('\n')
       .trim();
   };
@@ -255,27 +257,18 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   return (
     <div className="h-full flex flex-col overflow-hidden" style={{ backgroundColor: terminalBackground }}>
       {/* Tab Header */}
-      <div className={`flex items-center justify-between px-4 py-2 border-b shrink-0 ${
-        isDark
-          ? 'bg-zinc-900/80 border-white/5'
-          : 'bg-white/80 border-zinc-200'
-      }`}>
+      <div className="flex items-center justify-between px-4 py-2 border-b shrink-0 bg-zinc-900/80 border-white/5">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <Circle className={`w-2.5 h-2.5 ${statusConfig.color}`} fill="currentColor" />
-            <span className={`text-xs px-1.5 py-0.5 rounded ${
-              isDark ? 'bg-white/5 text-zinc-400' : 'bg-zinc-100 text-zinc-500'
-            }`}>
+            <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-zinc-400">
               {statusConfig.label}
             </span>
           </div>
-          <span
-            className={`text-sm font-medium ${isDark ? 'text-white' : 'text-zinc-900'}`}
-            title={tab.title}
-          >
+          <span className="text-sm font-medium text-white" title={tab.title}>
             {tab.title}
           </span>
-          <span className={`text-xs ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>
+          <span className="text-xs text-zinc-500">
             {session.username}@{session.host}:{session.port}
           </span>
         </div>
@@ -284,11 +277,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
             <button
               onClick={handleStop}
               aria-label="Disconnect"
-              className={`p-1.5 rounded-lg transition-colors ${
-                isDark
-                  ? 'hover:bg-white/5 text-zinc-400 hover:text-orange-400'
-                  : 'hover:bg-zinc-100 text-zinc-500 hover:text-orange-600'
-              }`}
+              className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-orange-400"
               title="Disconnect"
             >
               <StopCircle className="w-4 h-4" />
@@ -296,12 +285,8 @@ export function TerminalView({ tabId }: TerminalViewProps) {
           )}
           <button
             onClick={handleCopyOutput}
-              aria-label="Copiar todo"
-            className={`px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight ${
-              isDark
-                ? 'hover:bg-white/5 text-zinc-400 hover:text-blue-300'
-                : 'hover:bg-zinc-100 text-zinc-500 hover:text-blue-600'
-            }`}
+            aria-label="Copiar todo"
+            className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-white/5 text-zinc-400 hover:text-blue-300"
             title="Copiar todo"
           >
             <Copy className="w-4 h-4" />
@@ -309,12 +294,8 @@ export function TerminalView({ tabId }: TerminalViewProps) {
           </button>
           <button
             onClick={handleCopyLastCommand}
-              aria-label="Copiar último bloque"
-            className={`px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight ${
-              isDark
-                ? 'hover:bg-white/5 text-zinc-400 hover:text-emerald-300'
-                : 'hover:bg-zinc-100 text-zinc-500 hover:text-emerald-600'
-            }`}
+            aria-label="Copiar último bloque"
+            className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-white/5 text-zinc-400 hover:text-emerald-300"
             title="Copiar último comando/bloque"
           >
             <ClipboardList className="w-4 h-4" />
@@ -324,11 +305,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
             <button
               onClick={handleReconnect}
               aria-label="Reconnect"
-              className={`p-1.5 rounded-lg transition-colors ${
-                isDark
-                  ? 'hover:bg-white/5 text-zinc-400 hover:text-green-400'
-                  : 'hover:bg-zinc-100 text-zinc-500 hover:text-green-600'
-              }`}
+              className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-green-400"
               title="Reconnect"
             >
               <RefreshCw className="w-4 h-4" />
@@ -337,11 +314,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
           <button
             onClick={handleClose}
             aria-label="Cerrar pestaña"
-            className={`p-1.5 rounded-lg transition-colors ${
-              isDark
-                ? 'hover:bg-white/5 text-zinc-400 hover:text-red-400'
-                : 'hover:bg-zinc-100 text-zinc-500 hover:text-red-600'
-            }`}
+            className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-red-400"
             title="Close"
           >
             <X className="w-4 h-4" />
@@ -349,7 +322,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
         </div>
       </div>
 
-      {/* Terminal Container - compact padding */}
+      {/* Terminal Container */}
       <div
         ref={containerRef}
         className="flex-1 p-2 overflow-hidden min-h-0"
