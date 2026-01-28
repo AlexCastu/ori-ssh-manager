@@ -1,8 +1,9 @@
-import { useEffect, useRef, useCallback } from 'react';
-import { X, Circle, RefreshCw, StopCircle, Copy, ClipboardList } from 'lucide-react';
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { X, Circle, RefreshCw, StopCircle, Copy, ClipboardList, FolderOpen } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTerminal } from '../hooks/useTerminal';
 import { sshService } from '../hooks/sshService';
+import { FileBrowser } from './FileBrowser';
 
 interface TerminalViewProps {
   tabId: string;
@@ -24,6 +25,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   const hasConnectedRef = useRef(false);
   const currentChannelRef = useRef<string | null>(null);
   const bufferRef = useRef('');
+  const [showFileBrowser, setShowFileBrowser] = useState(false);
 
   const tab = tabs.find((t) => t.id === tabId);
   const session = sessions.find((s) => s.id === tab?.sessionId);
@@ -254,80 +256,110 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
   const isConnected = tab.status === 'connected';
 
+  const handleFileBrowserNavigate = useCallback((path: string) => {
+    if (tab?.channelId) {
+      sshService.send(tab.channelId, `cd "${path}"\n`);
+    }
+  }, [tab?.channelId]);
+
   return (
-    <div className="h-full flex flex-col overflow-hidden" style={{ backgroundColor: terminalBackground }}>
-      {/* Tab Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b shrink-0 bg-zinc-900/80 border-white/5">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Circle className={`w-2.5 h-2.5 ${statusConfig.color}`} fill="currentColor" />
-            <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-zinc-400">
-              {statusConfig.label}
+    <div className="h-full flex overflow-hidden" style={{ backgroundColor: terminalBackground }}>
+      {/* Main Terminal Section */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Tab Header */}
+        <div className="flex items-center justify-between px-4 py-2 border-b shrink-0 bg-zinc-900/80 border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Circle className={`w-2.5 h-2.5 ${statusConfig.color}`} fill="currentColor" />
+              <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-zinc-400">
+                {statusConfig.label}
+              </span>
+            </div>
+            <span className="text-sm font-medium text-white" title={tab.title}>
+              {tab.title}
+            </span>
+            <span className="text-xs text-zinc-500">
+              {session.username}@{session.host}:{session.port}
             </span>
           </div>
-          <span className="text-sm font-medium text-white" title={tab.title}>
-            {tab.title}
-          </span>
-          <span className="text-xs text-zinc-500">
-            {session.username}@{session.host}:{session.port}
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          {isConnected && (
+          <div className="flex items-center gap-1">
+            {isConnected && (
+              <>
+                <button
+                  onClick={() => setShowFileBrowser(!showFileBrowser)}
+                  aria-label="File Browser"
+                  className={`p-1.5 rounded-lg transition-colors hover:bg-white/5 ${
+                    showFileBrowser ? 'text-blue-400 bg-blue-500/10' : 'text-zinc-400 hover:text-blue-400'
+                  }`}
+                  title="File Browser (SFTP)"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleStop}
+                  aria-label="Disconnect"
+                  className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-orange-400"
+                  title="Disconnect"
+                >
+                  <StopCircle className="w-4 h-4" />
+                </button>
+              </>
+            )}
             <button
-              onClick={handleStop}
-              aria-label="Disconnect"
-              className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-orange-400"
-              title="Disconnect"
+              onClick={handleCopyOutput}
+              aria-label="Copiar todo"
+              className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-white/5 text-zinc-400 hover:text-blue-300"
+              title="Copiar todo"
             >
-              <StopCircle className="w-4 h-4" />
+              <Copy className="w-4 h-4" />
+              <span>All</span>
             </button>
-          )}
-          <button
-            onClick={handleCopyOutput}
-            aria-label="Copiar todo"
-            className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-white/5 text-zinc-400 hover:text-blue-300"
-            title="Copiar todo"
-          >
-            <Copy className="w-4 h-4" />
-            <span>All</span>
-          </button>
-          <button
-            onClick={handleCopyLastCommand}
-            aria-label="Copiar último bloque"
-            className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-white/5 text-zinc-400 hover:text-emerald-300"
-            title="Copiar último comando/bloque"
-          >
-            <ClipboardList className="w-4 h-4" />
-            <span>Last</span>
-          </button>
-          {(tab.status === 'disconnected' || tab.status === 'error') && (
             <button
-              onClick={handleReconnect}
-              aria-label="Reconnect"
-              className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-green-400"
-              title="Reconnect"
+              onClick={handleCopyLastCommand}
+              aria-label="Copiar último bloque"
+              className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-white/5 text-zinc-400 hover:text-emerald-300"
+              title="Copiar último comando/bloque"
             >
-              <RefreshCw className="w-4 h-4" />
+              <ClipboardList className="w-4 h-4" />
+              <span>Last</span>
             </button>
-          )}
-          <button
-            onClick={handleClose}
-            aria-label="Cerrar pestaña"
-            className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-red-400"
-            title="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
+            {(tab.status === 'disconnected' || tab.status === 'error') && (
+              <button
+                onClick={handleReconnect}
+                aria-label="Reconnect"
+                className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-green-400"
+                title="Reconnect"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              onClick={handleClose}
+              aria-label="Cerrar pestaña"
+              className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-red-400"
+              title="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
+
+        {/* Terminal Container */}
+        <div
+          ref={containerRef}
+          className="flex-1 p-2 overflow-hidden min-h-0"
+          onClick={() => focus()}
+        />
       </div>
 
-      {/* Terminal Container */}
-      <div
-        ref={containerRef}
-        className="flex-1 p-2 overflow-hidden min-h-0"
-        onClick={() => focus()}
-      />
+      {/* File Browser Panel */}
+      {showFileBrowser && isConnected && (
+        <FileBrowser
+          channelId={tab.channelId ?? null}
+          onClose={() => setShowFileBrowser(false)}
+          onNavigate={handleFileBrowserNavigate}
+        />
+      )}
     </div>
   );
 }

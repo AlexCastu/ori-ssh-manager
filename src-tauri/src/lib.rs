@@ -4,9 +4,11 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 mod db;
+mod sftp;
 mod ssh;
 
 use db::{Database, Session, SavedCommand};
+use sftp::{FileEntry, ListDirResult};
 use ssh::SshManager;
 use tauri_plugin_log;
 
@@ -151,6 +153,82 @@ async fn ssh_disconnect(
 
 // Logging commands removed (no external log control)
 
+// ==================== TAURI COMMANDS: SFTP ====================
+
+#[tauri::command]
+async fn sftp_list_dir(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+    path: String,
+) -> Result<ListDirResult, String> {
+    log::debug!("sftp_list_dir: channel={}, path={}", channel_id, path);
+    state.ssh.sftp_list_dir(&channel_id, &path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sftp_download(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+    remote_path: String,
+    local_path: String,
+) -> Result<u64, String> {
+    log::info!("sftp_download: {} -> {}", remote_path, local_path);
+    state.ssh.sftp_download(&channel_id, &remote_path, &local_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sftp_upload(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+    local_path: String,
+    remote_path: String,
+) -> Result<u64, String> {
+    log::info!("sftp_upload: {} -> {}", local_path, remote_path);
+    state.ssh.sftp_upload(&channel_id, &local_path, &remote_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sftp_mkdir(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+    path: String,
+) -> Result<(), String> {
+    log::info!("sftp_mkdir: {}", path);
+    state.ssh.sftp_mkdir(&channel_id, &path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sftp_delete(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+    path: String,
+    is_dir: bool,
+) -> Result<(), String> {
+    log::info!("sftp_delete: {} (is_dir={})", path, is_dir);
+    state.ssh.sftp_delete(&channel_id, &path, is_dir).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sftp_rename(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+    old_path: String,
+    new_path: String,
+) -> Result<(), String> {
+    log::info!("sftp_rename: {} -> {}", old_path, new_path);
+    state.ssh.sftp_rename(&channel_id, &old_path, &new_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sftp_stat(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+    path: String,
+) -> Result<FileEntry, String> {
+    log::debug!("sftp_stat: {}", path);
+    state.ssh.sftp_stat(&channel_id, &path).map_err(|e| e.to_string())
+}
+
 // ==================== APP ENTRY POINT ====================
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -163,6 +241,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .setup(|app| {
             app.handle().plugin(
@@ -185,6 +264,14 @@ pub fn run() {
             ssh_send,
             ssh_resize,
             ssh_disconnect,
+            // SFTP commands
+            sftp_list_dir,
+            sftp_download,
+            sftp_upload,
+            sftp_mkdir,
+            sftp_delete,
+            sftp_rename,
+            sftp_stat,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -27,21 +27,21 @@ pub enum SshError {
     SessionNotFound(String),
 }
 
-struct SshChannelInner {
-    session: SshSession,
-    channel: Channel,
-    _stream: TcpStream,
+pub(crate) struct SshChannelInner {
+    pub(crate) session: SshSession,
+    pub(crate) channel: Channel,
+    pub(crate) _stream: TcpStream,
 }
 
 pub struct SshChannel {
     #[allow(dead_code)]
     pub id: String,
-    inner: Arc<Mutex<SshChannelInner>>,
+    pub(crate) inner: Arc<Mutex<SshChannelInner>>,
     running: Arc<Mutex<bool>>,
 }
 
 pub struct SshManager {
-    channels: Mutex<HashMap<String, SshChannel>>,
+    pub(crate) channels: Mutex<HashMap<String, SshChannel>>,
     dead_channels: Mutex<Vec<String>>,
 }
 

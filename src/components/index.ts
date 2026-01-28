@@ -7,3 +7,4 @@ export { CommandModal } from './CommandModal';
 export { ToastContainer } from './ToastContainer';
 export { TitleBar } from './TitleBar';
 export { Logo } from './Logo';
+export { FileBrowser } from './FileBrowser';
