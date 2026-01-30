@@ -67,7 +67,7 @@ fn get_parent_path(path: &str) -> Option<String> {
 impl SshManager {
     /// List contents of a directory via SFTP
     pub fn sftp_list_dir(&self, channel_id: &str, path: &str) -> Result<ListDirResult, SshError> {
-        let sftp = self.get_sftp(channel_id)?;
+        let sftp = self.get_sftp_blocking(channel_id)?;
 
         // Resolve ~ to home directory
         let resolved_path = if path == "~" || path.is_empty() {
@@ -144,7 +144,7 @@ impl SshManager {
 
     /// Download a file from remote server
     pub fn sftp_download(&self, channel_id: &str, remote_path: &str, local_path: &str) -> Result<u64, SshError> {
-        let sftp = self.get_sftp(channel_id)?;
+        let sftp = self.get_sftp_blocking(channel_id)?;
 
         // Open remote file
         let mut remote_file = sftp.open(Path::new(remote_path))
@@ -177,7 +177,7 @@ impl SshManager {
 
     /// Upload a file to remote server
     pub fn sftp_upload(&self, channel_id: &str, local_path: &str, remote_path: &str) -> Result<u64, SshError> {
-        let sftp = self.get_sftp(channel_id)?;
+        let sftp = self.get_sftp_blocking(channel_id)?;
 
         // Open local file
         let mut local_file = File::open(local_path)
@@ -210,7 +210,7 @@ impl SshManager {
 
     /// Create a directory on remote server
     pub fn sftp_mkdir(&self, channel_id: &str, path: &str) -> Result<(), SshError> {
-        let sftp = self.get_sftp(channel_id)?;
+        let sftp = self.get_sftp_blocking(channel_id)?;
 
         sftp.mkdir(Path::new(path), 0o755)
             .map_err(|e| SshError::ChannelError(format!("Failed to create directory: {}", e)))
@@ -218,7 +218,7 @@ impl SshManager {
 
     /// Delete a file or empty directory on remote server
     pub fn sftp_delete(&self, channel_id: &str, path: &str, is_dir: bool) -> Result<(), SshError> {
-        let sftp = self.get_sftp(channel_id)?;
+        let sftp = self.get_sftp_blocking(channel_id)?;
 
         if is_dir {
             sftp.rmdir(Path::new(path))
@@ -231,7 +231,7 @@ impl SshManager {
 
     /// Rename a file or directory on remote server
     pub fn sftp_rename(&self, channel_id: &str, old_path: &str, new_path: &str) -> Result<(), SshError> {
-        let sftp = self.get_sftp(channel_id)?;
+        let sftp = self.get_sftp_blocking(channel_id)?;
 
         sftp.rename(Path::new(old_path), Path::new(new_path), None)
             .map_err(|e| SshError::ChannelError(format!("Failed to rename: {}", e)))
@@ -239,7 +239,7 @@ impl SshManager {
 
     /// Get file/directory info
     pub fn sftp_stat(&self, channel_id: &str, path: &str) -> Result<FileEntry, SshError> {
-        let sftp = self.get_sftp(channel_id)?;
+        let sftp = self.get_sftp_blocking(channel_id)?;
 
         let stat = sftp.stat(Path::new(path))
             .map_err(|e| SshError::ChannelError(format!("Failed to stat: {}", e)))?;
@@ -262,14 +262,9 @@ impl SshManager {
         })
     }
 
-    /// Get SFTP subsystem from an existing channel
-    pub fn get_sftp(&self, channel_id: &str) -> Result<Sftp, SshError> {
-        let channels = self.channels.lock().unwrap();
-        let ssh_channel = channels.get(channel_id)
-            .ok_or_else(|| SshError::SessionNotFound(channel_id.to_string()))?;
-
-        let inner = ssh_channel.inner.lock().unwrap();
-        inner.session.sftp()
-            .map_err(|e| SshError::ChannelError(format!("SFTP init failed: {}", e)))
+    /// Get a dedicated SFTP session (creates a new SSH connection)
+    /// This doesn't block the main terminal session
+    fn get_sftp_blocking(&self, channel_id: &str) -> Result<Sftp, SshError> {
+        self.create_sftp_session(channel_id)
     }
 }

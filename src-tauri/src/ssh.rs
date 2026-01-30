@@ -40,9 +40,23 @@ pub struct SshChannel {
     running: Arc<Mutex<bool>>,
 }
 
+/// Holds connection info for creating SFTP sessions
+#[derive(Clone)]
+pub struct ConnectionInfo {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_method: String,
+    pub password: Option<String>,
+    pub private_key_path: Option<String>,
+    pub private_key_passphrase: Option<String>,
+}
+
 pub struct SshManager {
     pub(crate) channels: Mutex<HashMap<String, SshChannel>>,
     dead_channels: Mutex<Vec<String>>,
+    /// Store connection info per channel for SFTP reconnection
+    pub(crate) connection_info: Mutex<HashMap<String, ConnectionInfo>>,
 }
 
 impl SshManager {
@@ -50,6 +64,7 @@ impl SshManager {
         SshManager {
             channels: Mutex::new(HashMap::new()),
             dead_channels: Mutex::new(Vec::new()),
+            connection_info: Mutex::new(HashMap::new()),
         }
     }
 
@@ -250,6 +265,19 @@ impl SshManager {
         });
 
         self.channels.lock().unwrap().insert(channel_id.clone(), ssh_channel);
+
+        // Store connection info for SFTP
+        let conn_info = ConnectionInfo {
+            host: host.to_string(),
+            port,
+            username: username.to_string(),
+            auth_method: auth_method.to_string(),
+            password: password.map(|s| s.to_string()),
+            private_key_path: private_key_path.map(|s| s.to_string()),
+            private_key_passphrase: private_key_passphrase.map(|s| s.to_string()),
+        };
+        self.connection_info.lock().unwrap().insert(channel_id.clone(), conn_info);
+
         Ok(channel_id)
     }
 
@@ -337,6 +365,62 @@ impl SshManager {
                 inner.channel.wait_close().ok();
             }
         }
+
+        // Also remove connection info
+        self.connection_info.lock().unwrap().remove(channel_id);
+
         Ok(())
+    }
+
+    /// Create a new SFTP session using stored connection info
+    /// This creates a separate SSH connection specifically for SFTP
+    pub fn create_sftp_session(&self, channel_id: &str) -> Result<ssh2::Sftp, SshError> {
+        // Get connection info
+        let conn_info = {
+            let info_map = self.connection_info.lock().unwrap();
+            info_map.get(channel_id)
+                .ok_or_else(|| SshError::SessionNotFound(channel_id.to_string()))?
+                .clone()
+        };
+
+        // Create new TCP connection
+        let stream = TcpStream::connect(format!("{}:{}", conn_info.host, conn_info.port))
+            .map_err(|e| SshError::ConnectionFailed(e.to_string()))?;
+
+        stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
+        stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
+
+        // Create SSH session
+        let mut session = SshSession::new()?;
+        session.set_tcp_stream(stream);
+        session.handshake()?;
+
+        // Authenticate
+        match conn_info.auth_method.as_str() {
+            "key" => {
+                let key_path = conn_info.private_key_path.as_ref()
+                    .ok_or_else(|| SshError::AuthFailed("No private key path".to_string()))?;
+                let key_path = std::path::Path::new(key_path);
+
+                session.userauth_pubkey_file(
+                    &conn_info.username,
+                    None,
+                    key_path,
+                    conn_info.private_key_passphrase.as_deref(),
+                ).map_err(|e| SshError::AuthFailed(format!("Key auth failed: {}", e)))?;
+            }
+            _ => {
+                let pwd = conn_info.password.as_deref().unwrap_or("");
+                session.userauth_password(&conn_info.username, pwd)
+                    .map_err(|e| SshError::AuthFailed(e.to_string()))?;
+            }
+        }
+
+        // Session stays in blocking mode for SFTP
+        session.set_blocking(true);
+
+        // Create SFTP subsystem
+        session.sftp()
+            .map_err(|e| SshError::ChannelError(format!("SFTP init failed: {}", e)))
     }
 }

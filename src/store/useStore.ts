@@ -52,6 +52,8 @@ export const useStore = create<AppStore>()(
       commandModal: { isOpen: false },
       settingsModal: { isOpen: false },
       sidebarCollapsed: false,
+      commandPanelCollapsed: false,
+      terminalZoom: 1.0,
 
       // ==================== INITIALIZATION ====================
       initialize: async () => {
@@ -395,6 +397,16 @@ export const useStore = create<AppStore>()(
     set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
   },
 
+  toggleCommandPanel: () => {
+    set((state) => ({ commandPanelCollapsed: !state.commandPanelCollapsed }));
+  },
+
+  setTerminalZoom: (zoom) => {
+    // Clamp between 0.7 and 1.5
+    const clampedZoom = Math.max(0.7, Math.min(1.5, zoom));
+    set({ terminalZoom: clampedZoom });
+  },
+
   // ==================== SESSION GROUPS ====================
   addGroup: (groupData) => {
     const { groups } = get();
@@ -461,6 +473,8 @@ export const useStore = create<AppStore>()(
         groups: state.groups,
         settings: state.settings,
         sidebarCollapsed: state.sidebarCollapsed,
+        commandPanelCollapsed: state.commandPanelCollapsed,
+        terminalZoom: state.terminalZoom,
       }),
     }
   )

@@ -7,6 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 interface UseTerminalOptions {
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
+  fontSize?: number;
 }
 
 export function useTerminal(options: UseTerminalOptions = {}) {
@@ -24,7 +25,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
       cursorBlink: true,
       cursorStyle: 'block',
       fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", Menlo, Monaco, "Courier New", monospace',
-      fontSize: 14,
+      fontSize: options.fontSize ?? 14,
       lineHeight: 1.2,
       theme: {
         background: '#0a0a0f',
@@ -183,6 +184,13 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     terminalRef.current?.scrollToBottom();
   }, []);
 
+  const setFontSize = useCallback((size: number) => {
+    if (terminalRef.current) {
+      terminalRef.current.options.fontSize = size;
+      fitAddonRef.current?.fit();
+    }
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -202,6 +210,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     getBufferText,
     getLastBlock,
     scrollToBottom,
+    setFontSize,
     terminal: terminalRef.current,
   };
 }

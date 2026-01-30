@@ -163,6 +163,8 @@ export interface UISlice {
   commandModal: ModalState & { data?: { command?: SavedCommand; mode?: 'create' | 'edit' } };
   settingsModal: ModalState;
   sidebarCollapsed: boolean;
+  commandPanelCollapsed: boolean;
+  terminalZoom: number; // 0.8 to 1.5 multiplier
   addToast: (toast: Omit<ToastMessage, 'id'>) => void;
   removeToast: (id: string) => void;
   openSessionModal: (data: { session?: Session; mode: 'create' | 'edit' }) => void;
@@ -172,6 +174,8 @@ export interface UISlice {
   openSettingsModal: () => void;
   closeSettingsModal: () => void;
   toggleSidebar: () => void;
+  toggleCommandPanel: () => void;
+  setTerminalZoom: (zoom: number) => void;
 }
 
 export interface SettingsSlice {

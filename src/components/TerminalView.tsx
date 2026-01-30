@@ -20,7 +20,7 @@ function trimBuffer(buffer: string, maxSize: number): string {
 }
 
 export function TerminalView({ tabId }: TerminalViewProps) {
-  const { tabs, sessions, closeTab, updateTabStatus, settings, addToast, getTabBuffer, setTabBuffer } = useStore();
+  const { tabs, sessions, closeTab, updateTabStatus, settings, addToast, getTabBuffer, setTabBuffer, terminalZoom } = useStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const hasConnectedRef = useRef(false);
   const currentChannelRef = useRef<string | null>(null);
@@ -31,6 +31,8 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   const session = sessions.find((s) => s.id === tab?.sessionId);
 
   const terminalBackground = settings?.terminalTheme === 'nord-light' ? '#eceff4' : '#2e3440';
+  const baseFontSize = 14;
+  const fontSize = Math.round(baseFontSize * terminalZoom);
 
   const handleData = useCallback(
     (data: string) => {
@@ -52,10 +54,16 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     [tab?.channelId, tab?.status, tabId]
   );
 
-  const { initTerminal, write, writeln, focus, fit, getSize, getBufferText, getLastBlock, scrollToBottom } = useTerminal({
+  const { initTerminal, write, writeln, focus, fit, getSize, getBufferText, getLastBlock, scrollToBottom, setFontSize } = useTerminal({
     onData: handleData,
     onResize: handleResize,
+    fontSize,
   });
+
+  // Update font size when zoom changes
+  useEffect(() => {
+    setFontSize(fontSize);
+  }, [fontSize, setFontSize]);
 
   useEffect(() => {
     if (!containerRef.current || !session || !tab) return;
