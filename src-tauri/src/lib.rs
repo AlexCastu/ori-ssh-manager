@@ -1,6 +1,5 @@
 //! ORI-SSHManager - Tauri Application Entry Point
 
-use aes_gcm::aead::consts::U32;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -80,8 +79,8 @@ pub struct ConnectParams {
     pub jump_port: Option<u16>,
     pub jump_username: Option<String>,
     pub jump_password: Option<String>,
-    pub cols: Option<U32>,
-    pub rows: Option<U32>,
+    pub cols: Option<u32>,
+    pub rows: Option<u32>,
 }
 
 #[tauri::command]

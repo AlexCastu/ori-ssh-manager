@@ -131,6 +131,7 @@ export interface SessionGroupsSlice {
   deleteGroup: (id: string) => void;
   toggleGroupExpanded: (id: string) => void;
   reorderSessions: (groupId: string | null, sessionIds: string[]) => void;
+  reorderGroups: (groupIds: string[]) => void;
 }
 
 export interface SessionsSlice {

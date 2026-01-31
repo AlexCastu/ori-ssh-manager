@@ -446,20 +446,41 @@ export const useStore = create<AppStore>()(
     }));
   },
 
-  reorderSessions: (_groupId, sessionIds) => {
-    // This updates the order of sessions in state
-    // For now, just reorder in memory - can be persisted later
+  reorderSessions: (groupId, sessionIds) => {
+    // This updates the order of sessions within a group
     set((state) => {
-      const reorderedSessions = sessionIds
-        .map((id) => state.sessions.find((s) => s.id === id))
+      // Get sessions in the specified group (or ungrouped if null)
+      const groupSessions = state.sessions.filter(s =>
+        groupId === null ? !s.groupId : s.groupId === groupId
+      );
+
+      // Reorder them based on the provided order
+      const reorderedGroupSessions = sessionIds
+        .map((id) => groupSessions.find((s) => s.id === id))
         .filter((s): s is Session => s !== undefined);
 
-      const otherSessions = state.sessions.filter(
-        (s) => !sessionIds.includes(s.id)
+      // Get sessions not in this group
+      const otherSessions = state.sessions.filter(s =>
+        groupId === null ? !!s.groupId : s.groupId !== groupId
       );
 
       return {
-        sessions: [...otherSessions, ...reorderedSessions],
+        sessions: [...otherSessions, ...reorderedGroupSessions],
+      };
+    });
+  },
+
+  reorderGroups: (groupIds: string[]) => {
+    set((state) => {
+      const reorderedGroups = groupIds
+        .map((id, index) => {
+          const group = state.groups.find((g) => g.id === id);
+          return group ? { ...group, order: index } : null;
+        })
+        .filter((g): g is SessionGroup => g !== null);
+
+      return {
+        groups: reorderedGroups,
       };
     });
   },

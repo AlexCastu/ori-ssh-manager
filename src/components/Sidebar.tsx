@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   DndContext,
@@ -9,8 +9,14 @@ import {
   useSensor,
   useSensors,
   useDroppable,
-  useDraggable,
 } from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import type { DragStartEvent, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
 import {
   Server,
@@ -48,8 +54,8 @@ const allColors: SessionColor[] = ['blue', 'green', 'purple', 'orange', 'red', '
 
 const getColor = (color: SessionColor) => colorConfig[color] || colorConfig.blue;
 
-// Draggable Session Item Component
-function DraggableSessionItem({
+// Sortable Session Item Component
+function SortableSessionItem({
   session,
   isActive,
   hasActiveTab,
@@ -72,14 +78,22 @@ function DraggableSessionItem({
   const [isHovered, setIsHovered] = useState(false);
   const { isDark } = useTheme();
 
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id: `session-${session.id}`,
-    data: { type: 'session', session },
+    data: { type: 'session', session, groupId: session.groupId },
   });
 
-  const style = transform ? {
-    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-  } : undefined;
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
 
   return (
     <div
@@ -89,7 +103,7 @@ function DraggableSessionItem({
       onMouseLeave={() => setIsHovered(false)}
       onClick={onSelect}
       className={`
-        relative p-1.5 rounded-lg cursor-pointer transition-all group
+        relative p-1 rounded-md cursor-pointer transition-all group
         ${isDragging ? 'opacity-0' : ''}
         ${isActive
           ? 'bg-[var(--bg-hover)]'
@@ -97,7 +111,7 @@ function DraggableSessionItem({
         }
       `}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         {/* Drag handle */}
         {!sidebarCollapsed && (
           <div
@@ -108,20 +122,20 @@ function DraggableSessionItem({
             }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <GripVertical className="w-3.5 h-3.5" />
+            <GripVertical className="w-3 h-3" />
           </div>
         )}
 
         {/* Server icon with session color */}
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${colors.bg} ${colors.border} shrink-0`}>
-          <Server className={`w-4 h-4 ${colors.text}`} />
+        <div className={`w-6 h-6 rounded flex items-center justify-center border ${colors.bg} ${colors.border} shrink-0`}>
+          <Server className={`w-3 h-3 ${colors.text}`} />
         </div>
 
         {/* Session info */}
         {!sidebarCollapsed && (
           <div className="flex-1 min-w-0">
-            <div className="font-medium text-sm truncate text-[var(--text-primary)]">{session.name}</div>
-            <div className="text-xs truncate text-[var(--text-tertiary)]">
+            <div className="font-medium text-xs truncate text-[var(--text-primary)]">{session.name}</div>
+            <div className="text-[10px] truncate text-[var(--text-tertiary)]">
               {session.username}@{session.host}
             </div>
           </div>
@@ -129,17 +143,17 @@ function DraggableSessionItem({
 
         {/* Action buttons */}
         {isHovered && !sidebarCollapsed && (
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center">
             {!hasActiveTab && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onConnect();
                 }}
-                className="p-1.5 rounded-md transition-colors hover:bg-[var(--accent-subtle)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]"
+                className="p-1 rounded transition-colors hover:bg-[var(--accent-subtle)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]"
                 title="Conectar"
               >
-                <Play className="w-3.5 h-3.5" />
+                <Play className="w-3 h-3" />
               </button>
             )}
             {!hasActiveTab && (
@@ -148,10 +162,10 @@ function DraggableSessionItem({
                   e.stopPropagation();
                   onEdit();
                 }}
-                className="p-1.5 rounded-md transition-colors hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                className="p-1 rounded transition-colors hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 title="Editar"
               >
-                <Edit2 className="w-3.5 h-3.5" />
+                <Edit2 className="w-3 h-3" />
               </button>
             )}
             {!hasActiveTab && (
@@ -160,10 +174,10 @@ function DraggableSessionItem({
                   e.stopPropagation();
                   onDelete();
                 }}
-                className="p-1.5 rounded-md transition-colors hover:bg-[var(--error-bg)] text-[var(--text-secondary)] hover:text-[var(--error)]"
+                className="p-1 rounded transition-colors hover:bg-[var(--error-bg)] text-[var(--text-secondary)] hover:text-[var(--error)]"
                 title="Eliminar"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-3 h-3" />
               </button>
             )}
           </div>
@@ -172,7 +186,7 @@ function DraggableSessionItem({
 
       {/* Jump host indicator */}
       {session.jumpHost && !sidebarCollapsed && (
-        <div className="mt-1 ml-[52px] text-[10px] text-[var(--text-tertiary)]">
+        <div className="mt-0.5 ml-[34px] text-[9px] text-[var(--text-tertiary)]">
           via {session.jumpHost}
         </div>
       )}
@@ -185,18 +199,35 @@ function SessionDragPreview({ session }: { session: Session }) {
   const colors = getColor(session.color);
 
   return (
-    <div className="p-1.5 rounded-lg bg-[var(--bg-elevated)] border border-[var(--accent-primary)] shadow-lg opacity-90">
-      <div className="flex items-center gap-2">
-        <GripVertical className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${colors.bg} ${colors.border} shrink-0`}>
-          <Server className={`w-4 h-4 ${colors.text}`} />
+    <div className="p-1 rounded-md bg-[var(--bg-elevated)] border border-[var(--accent-primary)] shadow-lg opacity-90">
+      <div className="flex items-center gap-1.5">
+        <GripVertical className="w-3 h-3 text-[var(--text-tertiary)]" />
+        <div className={`w-6 h-6 rounded flex items-center justify-center border ${colors.bg} ${colors.border} shrink-0`}>
+          <Server className={`w-3 h-3 ${colors.text}`} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-sm truncate text-[var(--text-primary)]">{session.name}</div>
-          <div className="text-xs truncate text-[var(--text-tertiary)]">
+          <div className="font-medium text-xs truncate text-[var(--text-primary)]">{session.name}</div>
+          <div className="text-[10px] truncate text-[var(--text-tertiary)]">
             {session.username}@{session.host}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Group preview for drag overlay
+function GroupDragPreview({ group, sessionCount }: { group: SessionGroup; sessionCount: number }) {
+  const colors = getColor(group.color);
+
+  return (
+    <div className="p-1.5 rounded-md bg-[var(--bg-elevated)] border border-[var(--accent-primary)] shadow-lg opacity-90">
+      <div className="flex items-center gap-1.5">
+        <GripVertical className="w-3 h-3 text-[var(--text-tertiary)]" />
+        <div className={`w-3 h-3 rounded-full ${colors.dot}`} />
+        <Folder className={`w-3.5 h-3.5 ${colors.text}`} />
+        <span className="text-xs font-medium text-[var(--text-secondary)]">{group.name}</span>
+        <span className="text-[10px] text-[var(--text-tertiary)]">({sessionCount})</span>
       </div>
     </div>
   );
@@ -250,8 +281,8 @@ function ColorPicker({
   );
 }
 
-// Droppable Group Component
-function DroppableGroup({
+// Sortable Group Component
+function SortableGroup({
   group,
   sessions,
   tabs,
@@ -285,20 +316,39 @@ function DroppableGroup({
   const [showMenu, setShowMenu] = useState(false);
   const colors = getColor(group.color);
   const groupSessions = sessions.filter((s) => s.groupId === group.id);
+  const sessionIds = useMemo(() => groupSessions.map(s => `session-${s.id}`), [groupSessions]);
 
-  const { setNodeRef } = useDroppable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id: `group-${group.id}`,
-    data: { type: 'group', groupId: group.id },
+    data: { type: 'group', group },
   });
+
+  const { setNodeRef: setDroppableRef, isOver: isOverDroppable } = useDroppable({
+    id: `group-drop-${group.id}`,
+    data: { type: 'group-drop', groupId: group.id },
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
 
   // Collapsed view
   if (sidebarCollapsed) {
     return (
-      <div ref={setNodeRef} className="mb-2">
+      <div ref={setNodeRef} style={style} className="mb-2">
         <div
           onClick={onToggleExpand}
           className={`p-2 rounded-lg cursor-pointer flex flex-col items-center gap-1 transition-all ${
-            isOver ? 'bg-[var(--accent-subtle)]/50' : 'hover:bg-[var(--bg-tertiary)]'
+            isOver || isOverDroppable ? 'bg-[var(--accent-subtle)]/50' : 'hover:bg-[var(--bg-tertiary)]'
           }`}
           title={group.name}
         >
@@ -306,7 +356,7 @@ function DroppableGroup({
           <Folder className={`w-4 h-4 ${colors.text}`} />
         </div>
         {group.isExpanded && groupSessions.map((session) => (
-          <DraggableSessionItem
+          <SortableSessionItem
             key={session.id}
             session={session}
             isActive={activeSessionId === session.id}
@@ -325,24 +375,35 @@ function DroppableGroup({
   return (
     <div
       ref={setNodeRef}
-      className={`mb-1 rounded-lg transition-all ${isOver ? 'bg-[var(--accent-subtle)]/50' : ''}`}
+      style={style}
+      className={`mb-0.5 rounded-md transition-all ${isOver || isOverDroppable ? 'bg-[var(--accent-subtle)]/50' : ''}`}
     >
       {/* Group Header */}
       <div
-        onClick={onToggleExpand}
-        className="flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer hover:bg-[var(--bg-tertiary)] group"
+        className="flex items-center gap-1.5 px-1.5 py-1.5 rounded-md cursor-pointer hover:bg-[var(--bg-tertiary)] group"
       >
-        <ChevronDown
-          className={`w-4 h-4 text-[var(--text-tertiary)] transition-transform duration-200 ${group.isExpanded ? '' : '-rotate-90'}`}
-        />
-
-        <ColorPicker selectedColor={group.color} onSelect={onChangeGroupColor} />
-
-        <div className={colors.text}>
-          {group.isExpanded ? <FolderOpen className="w-4 h-4" /> : <Folder className="w-4 h-4" />}
+        {/* Drag handle for group */}
+        <div
+          {...listeners}
+          {...attributes}
+          className="cursor-grab active:cursor-grabbing touch-none text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="w-3 h-3" />
         </div>
-        <span className="flex-1 text-sm font-medium text-[var(--text-secondary)] truncate">{group.name}</span>
-        <span className="text-xs text-[var(--text-tertiary)] tabular-nums">{groupSessions.length}</span>
+        <div onClick={onToggleExpand} className="flex items-center gap-1.5 flex-1 min-w-0">
+          <ChevronDown
+            className={`w-3.5 h-3.5 text-[var(--text-tertiary)] transition-transform duration-200 ${group.isExpanded ? '' : '-rotate-90'}`}
+          />
+
+          <ColorPicker selectedColor={group.color} onSelect={onChangeGroupColor} />
+
+          <div className={colors.text}>
+            {group.isExpanded ? <FolderOpen className="w-3.5 h-3.5" /> : <Folder className="w-3.5 h-3.5" />}
+          </div>
+          <span className="flex-1 text-xs font-medium text-[var(--text-secondary)] truncate">{group.name}</span>
+          <span className="text-[10px] text-[var(--text-tertiary)] tabular-nums">{groupSessions.length}</span>
+        </div>
 
         {/* Group Menu */}
         <div className="relative">
@@ -351,24 +412,24 @@ function DroppableGroup({
               e.stopPropagation();
               setShowMenu(!showMenu);
             }}
-            className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-all"
+            className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-all"
           >
-            <MoreVertical className="w-3.5 h-3.5" />
+            <MoreVertical className="w-3 h-3" />
           </button>
 
           {showMenu && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--bg-elevated)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1 min-w-[120px]">
+              <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--bg-elevated)] border border-[var(--border-primary)] rounded-md shadow-xl py-0.5 min-w-[100px]">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onEditGroup();
                     setShowMenu(false);
                   }}
-                  className="w-full px-3 py-1.5 text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] flex items-center gap-2"
+                  className="w-full px-2 py-1 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] flex items-center gap-1.5"
                 >
-                  <Edit2 className="w-3.5 h-3.5" />
+                  <Edit2 className="w-3 h-3" />
                   Renombrar
                 </button>
                 <button
@@ -377,9 +438,9 @@ function DroppableGroup({
                     onDeleteGroup();
                     setShowMenu(false);
                   }}
-                  className="w-full px-3 py-1.5 text-left text-sm text-[var(--error)] hover:bg-[var(--error-bg)] flex items-center gap-2"
+                  className="w-full px-2 py-1 text-left text-xs text-[var(--error)] hover:bg-[var(--error-bg)] flex items-center gap-1.5"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3 h-3" />
                   Eliminar
                 </button>
               </div>
@@ -398,25 +459,27 @@ function DroppableGroup({
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <div className={`ml-3 mt-0.5 space-y-0.5 border-l-2 pl-2 ${colors.border}`}>
-              {groupSessions.map((session) => (
-                <DraggableSessionItem
-                  key={session.id}
-                  session={session}
-                  isActive={activeSessionId === session.id}
-                  hasActiveTab={tabs.some(t => t.sessionId === session.id)}
-                  sidebarCollapsed={false}
-                  onSelect={() => onSelectSession(session.id)}
-                  onConnect={() => onConnectSession(session)}
-                  onEdit={() => onEditSession(session)}
-                  onDelete={() => onDeleteSession(session)}
-                />
-              ))}
+            <div ref={setDroppableRef} className={`ml-2.5 mt-0.5 space-y-0 border-l-2 pl-1.5 ${colors.border}`}>
+              <SortableContext items={sessionIds} strategy={verticalListSortingStrategy}>
+                {groupSessions.map((session) => (
+                  <SortableSessionItem
+                    key={session.id}
+                    session={session}
+                    isActive={activeSessionId === session.id}
+                    hasActiveTab={tabs.some(t => t.sessionId === session.id)}
+                    sidebarCollapsed={false}
+                    onSelect={() => onSelectSession(session.id)}
+                    onConnect={() => onConnectSession(session)}
+                    onEdit={() => onEditSession(session)}
+                    onDelete={() => onDeleteSession(session)}
+                  />
+                ))}
+              </SortableContext>
               {groupSessions.length === 0 && (
-                <div className={`text-xs py-2 px-2 text-center rounded border border-dashed ${
-                  isOver ? 'border-[var(--accent-primary)]/50 text-[var(--accent-primary)]' : 'border-[var(--border-secondary)] text-[var(--text-tertiary)]'
+                <div className={`text-[10px] py-1.5 px-1.5 text-center rounded border border-dashed ${
+                  isOver || isOverDroppable ? 'border-[var(--accent-primary)]/50 text-[var(--accent-primary)]' : 'border-[var(--border-secondary)] text-[var(--text-tertiary)]'
                 }`}>
-                  {isOver ? 'Soltar aquí' : 'Vacío'}
+                  {isOver || isOverDroppable ? 'Soltar aquí' : 'Vacío'}
                 </div>
               )}
             </div>
@@ -446,6 +509,8 @@ export function Sidebar() {
     deleteGroup,
     toggleGroupExpanded,
     updateSession,
+    reorderSessions,
+    reorderGroups,
   } = useStore();
   const { isDark } = useTheme();
 
@@ -484,6 +549,19 @@ export function Sidebar() {
   // Sessions without a group (from filtered results)
   const ungroupedSessions = filteredSessions.filter((s) => !s.groupId);
 
+  // Sortable IDs for groups
+  const sortedGroups = useMemo(() =>
+    [...groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+    [groups]
+  );
+  const groupIds = useMemo(() => sortedGroups.map(g => `group-${g.id}`), [sortedGroups]);
+
+  // Sortable IDs for ungrouped sessions
+  const ungroupedSessionIds = useMemo(() =>
+    ungroupedSessions.map(s => `session-${s.id}`),
+    [ungroupedSessions]
+  );
+
   // Droppable for ungrouped area
   const { setNodeRef: setUngroupedRef, isOver: isOverUngrouped } = useDroppable({
     id: 'ungrouped',
@@ -512,28 +590,80 @@ export function Sidebar() {
     const activeData = active.data.current;
     const overData = over.data.current;
 
-    if (activeData?.type !== 'session') return;
+    // Handle group reordering
+    if (activeData?.type === 'group' && overData?.type === 'group') {
+      const activeGroupId = active.id.toString().replace('group-', '');
+      const overGroupId = over.id.toString().replace('group-', '');
 
-    const sessionId = activeData.session.id;
-    const session = sessions.find(s => s.id === sessionId);
-    if (!session) return;
+      if (activeGroupId !== overGroupId) {
+        const oldIndex = groups.findIndex(g => g.id === activeGroupId);
+        const newIndex = groups.findIndex(g => g.id === overGroupId);
 
-    let targetGroupId: string | null = null;
-
-    if (overData?.type === 'group') {
-      targetGroupId = overData.groupId;
-    } else if (overData?.type === 'ungrouped' || over.id === 'ungrouped') {
-      targetGroupId = null;
-    } else if (over.id.toString().startsWith('group-')) {
-      targetGroupId = over.id.toString().replace('group-', '');
+        if (oldIndex !== -1 && newIndex !== -1) {
+          const newGroupIds = arrayMove(groups, oldIndex, newIndex).map(g => g.id);
+          reorderGroups(newGroupIds);
+        }
+      }
+      return;
     }
 
-    // Only update if group changed
-    if (session.groupId !== targetGroupId) {
-      console.log('[DnD] Moving session', sessionId, 'to group', targetGroupId);
-      await updateSession(sessionId, { groupId: targetGroupId }, false);
+    // Handle session reordering/moving
+    if (activeData?.type === 'session') {
+      const sessionId = activeData.session.id;
+      const session = sessions.find(s => s.id === sessionId);
+      if (!session) return;
+
+      // Check if dropping on "ungrouped" zone first (highest priority for removing from group)
+      if (overData?.type === 'ungrouped' || over.id === 'ungrouped') {
+        // Move to ungrouped (remove from any group)
+        if (session.groupId) {
+          await updateSession(sessionId, { groupId: null }, false);
+        }
+        return;
+      }
+
+      // Check if dropping on another session (reordering within same group)
+      if (overData?.type === 'session') {
+        const overSession = overData.session;
+
+        // Same group - reorder
+        if (session.groupId === overSession.groupId) {
+          const groupSessions = sessions.filter(s =>
+            session.groupId ? s.groupId === session.groupId : !s.groupId
+          );
+          const oldIndex = groupSessions.findIndex(s => s.id === sessionId);
+          const newIndex = groupSessions.findIndex(s => s.id === overSession.id);
+
+          if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+            const newSessionIds = arrayMove(groupSessions, oldIndex, newIndex).map(s => s.id);
+            reorderSessions(session.groupId || null, newSessionIds);
+          }
+        } else {
+          // Different group - move session to the new group
+          await updateSession(sessionId, { groupId: overSession.groupId || null }, false);
+        }
+        return;
+      }
+
+      // Determine target group from other drop targets
+      let targetGroupId: string | null | undefined = undefined;
+
+      if (overData?.type === 'group') {
+        targetGroupId = overData.group?.id || null;
+      } else if (overData?.type === 'group-drop') {
+        targetGroupId = overData.groupId || null;
+      } else if (over.id.toString().startsWith('group-drop-')) {
+        targetGroupId = over.id.toString().replace('group-drop-', '');
+      } else if (over.id.toString().startsWith('group-')) {
+        targetGroupId = over.id.toString().replace('group-', '');
+      }
+
+      // Only update if we have a valid target and group changed
+      if (targetGroupId !== undefined && session.groupId !== targetGroupId) {
+        await updateSession(sessionId, { groupId: targetGroupId }, false);
+      }
     }
-  }, [sessions, updateSession]);
+  }, [sessions, groups, updateSession, reorderSessions, reorderGroups]);
 
   const handleConnect = useCallback((session: Session) => {
     createTab(session.id);
@@ -575,9 +705,13 @@ export function Sidebar() {
     }
   }, [deleteGroup]);
 
-  // Get the session being dragged for the overlay
+  // Get the session or group being dragged for the overlay
   const activeSession = activeId
     ? sessions.find(s => `session-${s.id}` === activeId)
+    : null;
+
+  const activeGroup = activeId
+    ? sortedGroups.find(g => `group-${g.id}` === activeId)
     : null;
 
   return (
@@ -719,91 +853,97 @@ export function Sidebar() {
           )}
 
           {/* Groups */}
-          <div className="space-y-1">
-            {groups.map((group) => (
-              <div key={group.id}>
-                {editingGroup === group.id && !sidebarCollapsed ? (
-                  <div className={`flex items-center gap-2 rounded-lg p-2 mb-2 border ${
-                    isDark
-                      ? 'bg-[var(--bg-tertiary)] border-[var(--border-primary)]'
-                      : 'bg-[var(--bg-elevated)] border-[var(--border-primary)]'
-                  }`}>
-                    <div className={`w-3 h-3 rounded-full ${getColor(group.color).dot}`} />
-                    <input
-                      type="text"
-                      value={editGroupName}
-                      onChange={(e) => setEditGroupName(e.target.value)}
-                      className={`flex-1 bg-transparent text-sm outline-none ${
-                        isDark ? 'text-[var(--text-primary)]' : 'text-[var(--text-primary)]'
-                      }`}
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleEditGroupSubmit(group.id);
-                        if (e.key === 'Escape') {
-                          setEditingGroup(null);
-                          setEditGroupName('');
-                        }
+          <div className="space-y-0.5">
+            <SortableContext items={groupIds} strategy={verticalListSortingStrategy}>
+              {sortedGroups.map((group) => (
+                <div key={group.id}>
+                  {editingGroup === group.id && !sidebarCollapsed ? (
+                    <div className={`flex items-center gap-2 rounded-lg p-2 mb-2 border ${
+                      isDark
+                        ? 'bg-[var(--bg-tertiary)] border-[var(--border-primary)]'
+                        : 'bg-[var(--bg-elevated)] border-[var(--border-primary)]'
+                    }`}>
+                      <div className={`w-3 h-3 rounded-full ${getColor(group.color).dot}`} />
+                      <input
+                        type="text"
+                        value={editGroupName}
+                        onChange={(e) => setEditGroupName(e.target.value)}
+                        className={`flex-1 bg-transparent text-sm outline-none ${
+                          isDark ? 'text-[var(--text-primary)]' : 'text-[var(--text-primary)]'
+                        }`}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleEditGroupSubmit(group.id);
+                          if (e.key === 'Escape') {
+                            setEditingGroup(null);
+                            setEditGroupName('');
+                          }
+                        }}
+                        onBlur={() => handleEditGroupSubmit(group.id)}
+                      />
+                    </div>
+                  ) : (
+                    <SortableGroup
+                      group={group}
+                      sessions={filteredSessions}
+                      tabs={tabs}
+                      activeSessionId={activeSessionId}
+                      sidebarCollapsed={sidebarCollapsed}
+                      isOver={overId === `group-${group.id}` || overId === `group-drop-${group.id}`}
+                      onSelectSession={setActiveSession}
+                      onConnectSession={handleConnect}
+                      onEditSession={handleEdit}
+                      onDeleteSession={handleDelete}
+                      onToggleExpand={() => toggleGroupExpanded(group.id)}
+                      onEditGroup={() => {
+                        setEditingGroup(group.id);
+                        setEditGroupName(group.name);
                       }}
-                      onBlur={() => handleEditGroupSubmit(group.id)}
+                      onDeleteGroup={() => handleDeleteGroup(group.id)}
+                      onChangeGroupColor={(color) => updateGroup(group.id, { color })}
                     />
-                  </div>
-                ) : (
-                  <DroppableGroup
-                    group={group}
-                    sessions={filteredSessions}
-                    tabs={tabs}
-                    activeSessionId={activeSessionId}
-                    sidebarCollapsed={sidebarCollapsed}
-                    isOver={overId === `group-${group.id}`}
-                    onSelectSession={setActiveSession}
-                    onConnectSession={handleConnect}
-                    onEditSession={handleEdit}
-                    onDeleteSession={handleDelete}
-                    onToggleExpand={() => toggleGroupExpanded(group.id)}
-                    onEditGroup={() => {
-                      setEditingGroup(group.id);
-                      setEditGroupName(group.name);
-                    }}
-                    onDeleteGroup={() => handleDeleteGroup(group.id)}
-                    onChangeGroupColor={(color) => updateGroup(group.id, { color })}
-                  />
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              ))}
+            </SortableContext>
 
             {/* Ungrouped Sessions */}
             {ungroupedSessions.length > 0 && (
               <>
-                {groups.length > 0 && !sidebarCollapsed && (
-                  <div className="px-2 py-2 text-xs font-medium text-[var(--text-tertiary)]">Sin Grupo</div>
+                {sortedGroups.length > 0 && !sidebarCollapsed && (
+                  <div className="px-2 py-1.5 text-[10px] font-medium text-[var(--text-tertiary)]">Sin Grupo</div>
                 )}
-                {ungroupedSessions.map((session) => (
-                  <DraggableSessionItem
-                    key={session.id}
-                    session={session}
-                    isActive={activeSessionId === session.id}
-                    hasActiveTab={tabs.some(t => t.sessionId === session.id)}
-                    sidebarCollapsed={sidebarCollapsed}
-                    onSelect={() => setActiveSession(session.id)}
-                    onConnect={() => handleConnect(session)}
-                    onEdit={() => handleEdit(session)}
-                    onDelete={() => handleDelete(session)}
-                  />
-                ))}
+                <SortableContext items={ungroupedSessionIds} strategy={verticalListSortingStrategy}>
+                  {ungroupedSessions.map((session) => (
+                    <SortableSessionItem
+                      key={session.id}
+                      session={session}
+                      isActive={activeSessionId === session.id}
+                      hasActiveTab={tabs.some(t => t.sessionId === session.id)}
+                      sidebarCollapsed={sidebarCollapsed}
+                      onSelect={() => setActiveSession(session.id)}
+                      onConnect={() => handleConnect(session)}
+                      onEdit={() => handleEdit(session)}
+                      onDelete={() => handleDelete(session)}
+                    />
+                  ))}
+                </SortableContext>
               </>
             )}
 
             {/* Drop zone for removing from group */}
-            {!sidebarCollapsed && groups.length > 0 && activeId && (
+            {!sidebarCollapsed && sortedGroups.length > 0 && activeId && activeSession?.groupId && (
               <div
                 ref={setUngroupedRef}
-                className={`mt-2 py-2 rounded border border-dashed transition-all ${
+                className={`mt-2 py-3 rounded-md border-2 border-dashed transition-all ${
                   isOverUngrouped
-                    ? 'border-[var(--accent-primary)]/50 text-[var(--accent-primary)]'
+                    ? 'border-[var(--accent-primary)] bg-[var(--accent-subtle)]/30 text-[var(--accent-primary)]'
                     : 'border-[var(--border-primary)] text-[var(--text-tertiary)]'
                 }`}
               >
-                <p className="text-xs text-center">Sin grupo</p>
+                <p className="text-xs text-center font-medium">
+                  {isOverUngrouped ? 'Soltar para quitar del grupo' : 'Arrastrar aquí para quitar del grupo'}
+                </p>
               </div>
             )}
 
@@ -864,6 +1004,8 @@ export function Sidebar() {
       <DragOverlay>
         {activeSession ? (
           <SessionDragPreview session={activeSession} />
+        ) : activeGroup ? (
+          <GroupDragPreview group={activeGroup} sessionCount={filteredSessions.filter(s => s.groupId === activeGroup.id).length} />
         ) : null}
       </DragOverlay>
     </DndContext>

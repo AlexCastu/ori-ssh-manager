@@ -1,10 +1,14 @@
 //! SSH Connection module for SSH Manager
 
-use ssh2::{Channel, Session as SshSession};
+use ssh2::{Channel, Session as SshSession, Sftp};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::Mutex;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -26,39 +30,56 @@ pub enum SshError {
 
 pub struct SshChannel {
     pub id: String,
-    session: SshSession,
-    channel: Channel,
-    _stream: TcpStream,
+    pub session: SshSession,
+    pub channel: Channel,
+    pub stream: TcpStream,
+    // Store connection info for SFTP reconnection
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_method: String,
+    pub password: Option<String>,
+    pub private_key_path: Option<String>,
+    pub private_key_passphrase: Option<String>,
 }
 
 pub struct SshManager {
-    channels: Mutex<HashMap<String, SshChannel>>,
+    channels: Arc<Mutex<HashMap<String, SshChannel>>>,
 }
 
 impl SshManager {
     pub fn new() -> Self {
         SshManager {
-            channels: Mutex::new(HashMap::new()),
+            channels: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub fn connect(
         &self,
+        app: &AppHandle,
         host: &str,
         port: u16,
         username: &str,
-        password: &str,
+        auth_method: &str,
+        password: Option<&str>,
+        private_key_path: Option<&str>,
+        private_key_passphrase: Option<&str>,
         jump_host: Option<&str>,
         jump_port: Option<u16>,
         jump_username: Option<&str>,
         jump_password: Option<&str>,
+        cols: Option<u32>,
+        rows: Option<u32>,
     ) -> Result<String, SshError> {
+        let cols = cols.unwrap_or(80) as u32;
+        let rows = rows.unwrap_or(24) as u32;
+
         let stream = if let Some(jhost) = jump_host {
             self.connect_via_jump(
                 jhost,
                 jump_port.unwrap_or(22),
                 jump_username.unwrap_or(username),
-                jump_password.unwrap_or(password),
+                jump_password.unwrap_or(password.unwrap_or("")),
                 host,
                 port,
             )?
@@ -70,12 +91,35 @@ impl SshManager {
         let mut session = SshSession::new()?;
         session.set_tcp_stream(stream.try_clone()?);
         session.handshake()?;
-        session
-            .userauth_password(username, password)
-            .map_err(|e| SshError::AuthFailed(e.to_string()))?;
+
+        // Authenticate based on method
+        match auth_method {
+            "key" => {
+                if let Some(key_path) = private_key_path {
+                    let key_path = Path::new(key_path);
+                    session
+                        .userauth_pubkey_file(
+                            username,
+                            None,
+                            key_path,
+                            private_key_passphrase,
+                        )
+                        .map_err(|e| SshError::AuthFailed(format!("Key auth failed: {}", e)))?;
+                } else {
+                    return Err(SshError::AuthFailed("Private key path required for key authentication".to_string()));
+                }
+            }
+            _ => {
+                // Default to password authentication
+                let pwd = password.unwrap_or("");
+                session
+                    .userauth_password(username, pwd)
+                    .map_err(|e| SshError::AuthFailed(e.to_string()))?;
+            }
+        }
 
         let mut channel = session.channel_session()?;
-        channel.request_pty("vt100", None, Some((80, 24, 0, 0)))?;
+        channel.request_pty("xterm-256color", None, Some((cols, rows, 0, 0)))?;
         channel.shell()?;
         session.set_blocking(false);
 
@@ -84,13 +128,24 @@ impl SshManager {
             id: channel_id.clone(),
             session,
             channel,
-            _stream: stream,
+            stream,
+            host: host.to_string(),
+            port,
+            username: username.to_string(),
+            auth_method: auth_method.to_string(),
+            password: password.map(|s| s.to_string()),
+            private_key_path: private_key_path.map(|s| s.to_string()),
+            private_key_passphrase: private_key_passphrase.map(|s| s.to_string()),
         };
 
         self.channels
             .lock()
             .unwrap()
             .insert(channel_id.clone(), ssh_channel);
+
+        // Start read thread for this channel
+        self.start_read_thread(app.clone(), channel_id.clone());
+
         Ok(channel_id)
     }
 
@@ -151,5 +206,103 @@ impl SshManager {
             ssh.channel.wait_close().ok();
         }
         Ok(())
+    }
+
+    /// Resize the terminal
+    pub fn resize(&self, channel_id: &str, cols: u16, rows: u16) -> Result<(), SshError> {
+        let mut channels = self.channels.lock().unwrap();
+        let ssh = channels
+            .get_mut(channel_id)
+            .ok_or_else(|| SshError::SessionNotFound(channel_id.to_string()))?;
+
+        ssh.channel
+            .request_pty_size(cols as u32, rows as u32, None, None)
+            .map_err(|e| SshError::ChannelError(format!("Failed to resize: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Create a new SFTP session (separate from terminal)
+    pub fn create_sftp_session(&self, channel_id: &str) -> Result<Sftp, SshError> {
+        let channels = self.channels.lock().unwrap();
+        let ssh = channels
+            .get(channel_id)
+            .ok_or_else(|| SshError::SessionNotFound(channel_id.to_string()))?;
+
+        // Create a new TCP connection for SFTP
+        let stream = TcpStream::connect(format!("{}:{}", ssh.host, ssh.port))
+            .map_err(|e| SshError::ConnectionFailed(format!("SFTP connection: {}", e)))?;
+
+        let mut session = SshSession::new()?;
+        session.set_tcp_stream(stream);
+        session.handshake()?;
+
+        // Authenticate using stored credentials
+        match ssh.auth_method.as_str() {
+            "key" => {
+                if let Some(ref key_path) = ssh.private_key_path {
+                    let key_path = Path::new(key_path);
+                    session
+                        .userauth_pubkey_file(
+                            &ssh.username,
+                            None,
+                            key_path,
+                            ssh.private_key_passphrase.as_deref(),
+                        )
+                        .map_err(|e| SshError::AuthFailed(format!("SFTP key auth: {}", e)))?;
+                } else {
+                    return Err(SshError::AuthFailed("No key path stored".to_string()));
+                }
+            }
+            _ => {
+                let pwd = ssh.password.as_deref().unwrap_or("");
+                session
+                    .userauth_password(&ssh.username, pwd)
+                    .map_err(|e| SshError::AuthFailed(format!("SFTP auth: {}", e)))?;
+            }
+        }
+
+        session.set_blocking(true);
+        let sftp = session
+            .sftp()
+            .map_err(|e| SshError::ChannelError(format!("Failed to create SFTP: {}", e)))?;
+
+        Ok(sftp)
+    }
+
+    /// Start a background thread to read from the SSH channel and emit events
+    fn start_read_thread(&self, app: AppHandle, channel_id: String) {
+        let channels = self.channels.clone();
+
+        thread::spawn(move || {
+            let mut buf = vec![0u8; 8192];
+
+            loop {
+                thread::sleep(Duration::from_millis(10));
+
+                let result = {
+                    let mut channels_guard = channels.lock().unwrap();
+                    if let Some(ssh) = channels_guard.get_mut(&channel_id) {
+                        match ssh.channel.read(&mut buf) {
+                            Ok(n) if n > 0 => Some(buf[0..n].to_vec()),
+                            Ok(_) => None,
+                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => None,
+                            Err(_) => {
+                                // Connection closed or error
+                                break;
+                            }
+                        }
+                    } else {
+                        // Channel removed
+                        break;
+                    }
+                };
+
+                if let Some(data) = result {
+                    let output = String::from_utf8_lossy(&data).to_string();
+                    let _ = app.emit(&format!("ssh-output-{}", channel_id), output);
+                }
+            }
+        });
     }
 }
