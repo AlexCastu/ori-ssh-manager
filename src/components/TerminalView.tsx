@@ -38,7 +38,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
   // Track user input to detect exit commands
   const inputBufferRef = useRef('');
-  
+
   // Common exit commands across different platforms/shells
   const EXIT_COMMANDS = ['exit', 'logout', 'quit', 'bye', 'disconnect', 'close', 'q', 'halt', 'poweroff', 'shutdown'];
 
@@ -78,7 +78,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
             }
           }, 100);
         }
-        
+
         sshService.send(tab.channelId, data);
       }
     },
