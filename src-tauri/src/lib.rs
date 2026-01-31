@@ -7,7 +7,7 @@ mod db;
 mod sftp;
 mod ssh;
 
-use db::{Database, Session, SavedCommand};
+use db::{Database, SavedCommand, Session};
 use sftp::{FileEntry, ListDirResult};
 use ssh::SshManager;
 use tauri_plugin_log;
@@ -35,10 +35,7 @@ async fn save_session(
 }
 
 #[tauri::command]
-async fn delete_session(
-    state: tauri::State<'_, Arc<AppState>>,
-    id: String,
-) -> Result<(), String> {
+async fn delete_session(state: tauri::State<'_, Arc<AppState>>, id: String) -> Result<(), String> {
     state.db.delete_session(&id).map_err(|e| e.to_string())
 }
 
@@ -47,7 +44,10 @@ async fn get_commands(
     state: tauri::State<'_, Arc<AppState>>,
     session_id: Option<String>,
 ) -> Result<Vec<SavedCommand>, String> {
-    state.db.get_commands(session_id.as_deref()).map_err(|e| e.to_string())
+    state
+        .db
+        .get_commands(session_id.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -59,10 +59,7 @@ async fn save_command(
 }
 
 #[tauri::command]
-async fn delete_command(
-    state: tauri::State<'_, Arc<AppState>>,
-    id: String,
-) -> Result<(), String> {
+async fn delete_command(state: tauri::State<'_, Arc<AppState>>, id: String) -> Result<(), String> {
     state.db.delete_command(&id).map_err(|e| e.to_string())
 }
 
@@ -92,9 +89,14 @@ async fn ssh_connect(
     state: tauri::State<'_, Arc<AppState>>,
     params: ConnectParams,
 ) -> Result<String, String> {
-    log::info!("SSH Connect attempt: {}@{}:{} ({}x{})",
-        params.username, params.host, params.port,
-        params.cols.unwrap_or(80), params.rows.unwrap_or(24));
+    log::info!(
+        "SSH Connect attempt: {}@{}:{} ({}x{})",
+        params.username,
+        params.host,
+        params.port,
+        params.cols.unwrap_or(80),
+        params.rows.unwrap_or(24)
+    );
 
     match state.ssh.connect(
         &app,
@@ -130,7 +132,10 @@ async fn ssh_send(
     data: String,
 ) -> Result<(), String> {
     log::debug!("ssh_send: channel={}, data={:?}", channel_id, data);
-    state.ssh.send_command(&channel_id, &data).map_err(|e| e.to_string())
+    state
+        .ssh
+        .send_command(&channel_id, &data)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -140,7 +145,10 @@ async fn ssh_resize(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    state.ssh.resize(&channel_id, cols, rows).map_err(|e| e.to_string())
+    state
+        .ssh
+        .resize(&channel_id, cols, rows)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -161,8 +169,10 @@ async fn sftp_list_dir(
     channel_id: String,
     path: String,
 ) -> Result<ListDirResult, String> {
-    log::debug!("sftp_list_dir: channel={}, path={}", channel_id, path);
-    state.ssh.sftp_list_dir(&channel_id, &path).map_err(|e| e.to_string())
+    state
+        .ssh
+        .sftp_list_dir(&channel_id, &path)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -172,8 +182,10 @@ async fn sftp_download(
     remote_path: String,
     local_path: String,
 ) -> Result<u64, String> {
-    log::info!("sftp_download: {} -> {}", remote_path, local_path);
-    state.ssh.sftp_download(&channel_id, &remote_path, &local_path).map_err(|e| e.to_string())
+    state
+        .ssh
+        .sftp_download(&channel_id, &remote_path, &local_path)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -183,8 +195,10 @@ async fn sftp_upload(
     local_path: String,
     remote_path: String,
 ) -> Result<u64, String> {
-    log::info!("sftp_upload: {} -> {}", local_path, remote_path);
-    state.ssh.sftp_upload(&channel_id, &local_path, &remote_path).map_err(|e| e.to_string())
+    state
+        .ssh
+        .sftp_upload(&channel_id, &local_path, &remote_path)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -193,8 +207,10 @@ async fn sftp_mkdir(
     channel_id: String,
     path: String,
 ) -> Result<(), String> {
-    log::info!("sftp_mkdir: {}", path);
-    state.ssh.sftp_mkdir(&channel_id, &path).map_err(|e| e.to_string())
+    state
+        .ssh
+        .sftp_mkdir(&channel_id, &path)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -204,8 +220,10 @@ async fn sftp_delete(
     path: String,
     is_dir: bool,
 ) -> Result<(), String> {
-    log::info!("sftp_delete: {} (is_dir={})", path, is_dir);
-    state.ssh.sftp_delete(&channel_id, &path, is_dir).map_err(|e| e.to_string())
+    state
+        .ssh
+        .sftp_delete(&channel_id, &path, is_dir)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -215,8 +233,22 @@ async fn sftp_rename(
     old_path: String,
     new_path: String,
 ) -> Result<(), String> {
-    log::info!("sftp_rename: {} -> {}", old_path, new_path);
-    state.ssh.sftp_rename(&channel_id, &old_path, &new_path).map_err(|e| e.to_string())
+    state
+        .ssh
+        .sftp_rename(&channel_id, &old_path, &new_path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sftp_touch(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+    path: String,
+) -> Result<(), String> {
+    state
+        .ssh
+        .sftp_touch(&channel_id, &path)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -225,8 +257,10 @@ async fn sftp_stat(
     channel_id: String,
     path: String,
 ) -> Result<FileEntry, String> {
-    log::debug!("sftp_stat: {}", path);
-    state.ssh.sftp_stat(&channel_id, &path).map_err(|e| e.to_string())
+    state
+        .ssh
+        .sftp_stat(&channel_id, &path)
+        .map_err(|e| e.to_string())
 }
 
 // ==================== APP ENTRY POINT ====================
@@ -271,6 +305,7 @@ pub fn run() {
             sftp_mkdir,
             sftp_delete,
             sftp_rename,
+            sftp_touch,
             sftp_stat,
         ])
         .run(tauri::generate_context!())

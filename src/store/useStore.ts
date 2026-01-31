@@ -66,7 +66,7 @@ export const useStore = create<AppStore>()(
           get().addToast({
             type: 'error',
             title: 'Error',
-            message: 'Failed to initialize application',
+            message: 'Error al inicializar la aplicación',
           });
         }
       },
@@ -97,15 +97,15 @@ export const useStore = create<AppStore>()(
           set((state) => ({ sessions: [...state.sessions, session] }));
           get().addToast({
             type: 'success',
-            title: 'Session Created',
-            message: `Session "${session.name}" has been saved`,
+            title: 'Sesión Creada',
+            message: `La sesión "${session.name}" ha sido guardada`,
           });
         } catch (error) {
           console.error('Failed to save session:', error);
           get().addToast({
             type: 'error',
             title: 'Error',
-            message: 'Failed to save session',
+            message: 'Error al guardar la sesión',
           });
           throw error;
         }
@@ -116,7 +116,13 @@ export const useStore = create<AppStore>()(
         const existing = sessions.find((s) => s.id === id);
         if (!existing) return;
 
-        const updated: Session = { ...existing, ...updates };
+        // Convert undefined groupId to null for database
+        const sanitizedUpdates = { ...updates };
+        if ('groupId' in sanitizedUpdates && sanitizedUpdates.groupId === undefined) {
+          sanitizedUpdates.groupId = null;
+        }
+
+        const updated: Session = { ...existing, ...sanitizedUpdates };
 
         try {
           await invoke('save_session', { session: updated });
@@ -127,8 +133,8 @@ export const useStore = create<AppStore>()(
           if (showToast && !('groupId' in updates && Object.keys(updates).length === 1)) {
             get().addToast({
               type: 'success',
-              title: 'Session Updated',
-              message: `Session "${updated.name}" has been updated`,
+              title: 'Sesión Actualizada',
+              message: `La sesión "${updated.name}" ha sido actualizada`,
             });
           }
         } catch (error) {
@@ -136,7 +142,7 @@ export const useStore = create<AppStore>()(
           get().addToast({
             type: 'error',
             title: 'Error',
-            message: 'Failed to update session',
+            message: 'Error al actualizar la sesión',
           });
           throw error;
         }
@@ -151,15 +157,15 @@ export const useStore = create<AppStore>()(
       }));
       get().addToast({
         type: 'success',
-        title: 'Session Deleted',
-        message: 'Session has been removed',
+        title: 'Sesión Eliminada',
+        message: 'La sesión ha sido eliminada',
       });
     } catch (error) {
       console.error('Failed to delete session:', error);
       get().addToast({
         type: 'error',
         title: 'Error',
-        message: 'Failed to delete session',
+        message: 'Error al eliminar la sesión',
       });
       throw error;
     }
@@ -189,15 +195,15 @@ export const useStore = create<AppStore>()(
       set((state) => ({ commands: [...state.commands, command] }));
       get().addToast({
         type: 'success',
-        title: 'Command Saved',
-        message: `Command "${command.name}" has been saved`,
+        title: 'Comando Guardado',
+        message: `El comando "${command.name}" ha sido guardado`,
       });
     } catch (error) {
       console.error('Failed to save command:', error);
       get().addToast({
         type: 'error',
         title: 'Error',
-        message: 'Failed to save command',
+        message: 'Error al guardar el comando',
       });
       throw error;
     }
@@ -211,15 +217,15 @@ export const useStore = create<AppStore>()(
       }));
       get().addToast({
         type: 'success',
-        title: 'Command Deleted',
-        message: 'Command has been removed',
+        title: 'Comando Eliminado',
+        message: 'El comando ha sido eliminado',
       });
     } catch (error) {
       console.error('Failed to delete command:', error);
       get().addToast({
         type: 'error',
         title: 'Error',
-        message: 'Failed to delete command',
+        message: 'Error al eliminar el comando',
       });
       throw error;
     }
@@ -401,10 +407,8 @@ export const useStore = create<AppStore>()(
     set((state) => ({ commandPanelCollapsed: !state.commandPanelCollapsed }));
   },
 
-  setTerminalZoom: (zoom) => {
-    // Clamp between 0.7 and 1.5
-    const clampedZoom = Math.max(0.7, Math.min(1.5, zoom));
-    set({ terminalZoom: clampedZoom });
+  setTerminalZoom: (zoom: number) => {
+    set({ terminalZoom: Math.max(0.5, Math.min(2.5, zoom)) });
   },
 
   // ==================== SESSION GROUPS ====================

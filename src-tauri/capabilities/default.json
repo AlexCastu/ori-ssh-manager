@@ -14,6 +14,9 @@
     "core:window:allow-is-maximized",
     "core:window:allow-start-dragging",
     "shell:default",
-    "log:default"
+    "log:default",
+    "dialog:default",
+    "dialog:allow-save",
+    "dialog:allow-open"
   ]
 }

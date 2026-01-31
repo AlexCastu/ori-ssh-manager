@@ -23,43 +23,43 @@ function classifyError(error: string): { title: string; message: string } {
 
   if (errorLower.includes('auth') || errorLower.includes('permission denied')) {
     return {
-      title: 'Authentication Failed',
-      message: 'Invalid username, password, or SSH key. Please check your credentials.',
+      title: 'Autenticación Fallida',
+      message: 'Usuario, contraseña o clave SSH inválidos. Por favor verifica tus credenciales.',
     };
   }
   if (errorLower.includes('timeout') || errorLower.includes('timed out')) {
     return {
-      title: 'Connection Timeout',
-      message: 'Server took too long to respond. Check if the host is reachable.',
+      title: 'Tiempo de Conexión Agotado',
+      message: 'El servidor tardó demasiado en responder. Verifica si el host es accesible.',
     };
   }
   if (errorLower.includes('refused') || errorLower.includes('connection refused')) {
     return {
-      title: 'Connection Refused',
-      message: 'Server refused the connection. Verify the port and firewall settings.',
+      title: 'Conexión Rechazada',
+      message: 'El servidor rechazó la conexión. Verifica el puerto y la configuración del firewall.',
     };
   }
   if (errorLower.includes('unreachable') || errorLower.includes('no route')) {
     return {
-      title: 'Host Unreachable',
-      message: 'Cannot reach the server. Check network connectivity.',
+      title: 'Host Inalcanzable',
+      message: 'No se puede alcanzar el servidor. Verifica la conectividad de red.',
     };
   }
   if (errorLower.includes('key') && errorLower.includes('not found')) {
     return {
-      title: 'SSH Key Not Found',
-      message: 'The specified private key file does not exist.',
+      title: 'Clave SSH No Encontrada',
+      message: 'El archivo de clave privada especificado no existe.',
     };
   }
   if (errorLower.includes('dns') || errorLower.includes('resolve')) {
     return {
-      title: 'DNS Resolution Failed',
-      message: 'Could not resolve hostname. Check the server address.',
+      title: 'Resolución DNS Fallida',
+      message: 'No se pudo resolver el nombre del host. Verifica la dirección del servidor.',
     };
   }
 
   return {
-    title: 'Connection Failed',
+    title: 'Conexión Fallida',
     message: error,
   };
 }
@@ -167,8 +167,8 @@ class SSHService {
         this.startReading(channelId, config.onData);
         addToast({
           type: 'success',
-          title: 'Reconnected',
-          message: `Successfully reconnected to ${config.session.name}`,
+          title: 'Reconectado',
+          message: `Reconectado exitosamente a ${config.session.name}`,
         });
       } else {
         // Try again
@@ -209,8 +209,8 @@ class SSHService {
       updateTabStatus(tabId, 'connected', channelId);
       addToast({
         type: 'success',
-        title: 'Connected',
-        message: `Connected to ${session.name}`,
+        title: 'Conectado',
+        message: `Conectado a ${session.name}`,
       });
       return channelId;
     } catch (error) {

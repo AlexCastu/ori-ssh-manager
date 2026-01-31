@@ -1,9 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { X, Circle, RefreshCw, StopCircle, Copy, ClipboardList, FolderOpen } from 'lucide-react';
+import { X, Circle, RefreshCw, StopCircle, Copy, ClipboardList, FolderOpen, ZoomIn, ZoomOut } from 'lucide-react';
+import { FileBrowser } from './FileBrowser';
 import { useStore } from '../store/useStore';
 import { useTerminal } from '../hooks/useTerminal';
 import { sshService } from '../hooks/sshService';
-import { FileBrowser } from './FileBrowser';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface TerminalViewProps {
   tabId: string;
@@ -15,12 +16,14 @@ const MAX_BUFFER_SIZE = 500 * 1024;
 // Trim buffer keeping only the last portion when it exceeds max size
 function trimBuffer(buffer: string, maxSize: number): string {
   if (buffer.length <= maxSize) return buffer;
+  // Keep the last 80% of max size to avoid frequent trimming
   const keepSize = Math.floor(maxSize * 0.8);
   return buffer.slice(-keepSize);
 }
 
 export function TerminalView({ tabId }: TerminalViewProps) {
-  const { tabs, sessions, closeTab, updateTabStatus, settings, addToast, getTabBuffer, setTabBuffer, terminalZoom } = useStore();
+  const { tabs, sessions, closeTab, updateTabStatus, settings, addToast, getTabBuffer, setTabBuffer, terminalZoom, setTerminalZoom } = useStore();
+  const { isDark } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const hasConnectedRef = useRef(false);
   const currentChannelRef = useRef<string | null>(null);
@@ -31,8 +34,6 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   const session = sessions.find((s) => s.id === tab?.sessionId);
 
   const terminalBackground = settings?.terminalTheme === 'nord-light' ? '#eceff4' : '#2e3440';
-  const baseFontSize = 14;
-  const fontSize = Math.round(baseFontSize * terminalZoom);
 
   const handleData = useCallback(
     (data: string) => {
@@ -54,16 +55,22 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     [tab?.channelId, tab?.status, tabId]
   );
 
-  const { initTerminal, write, writeln, focus, fit, getSize, getBufferText, getLastBlock, scrollToBottom, setFontSize } = useTerminal({
+  const { initTerminal, write, writeln, focus, fit, getSize, getBufferText, getLastBlock, scrollToBottom, setFontSize, setTheme } = useTerminal({
     onData: handleData,
     onResize: handleResize,
-    fontSize,
+    fontSize: Math.round(14 * terminalZoom),
+    terminalTheme: settings?.terminalTheme || 'nord-dark',
   });
 
   // Update font size when zoom changes
   useEffect(() => {
-    setFontSize(fontSize);
-  }, [fontSize, setFontSize]);
+    setFontSize(Math.round(14 * terminalZoom));
+  }, [terminalZoom, setFontSize]);
+
+  // Update terminal theme when settings change
+  useEffect(() => {
+    setTheme(settings?.terminalTheme || 'nord-dark');
+  }, [settings?.terminalTheme, setTheme]);
 
   useEffect(() => {
     if (!containerRef.current || !session || !tab) return;
@@ -124,8 +131,12 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       if (channelId) {
         hasConnectedRef.current = true;
         attachToChannel(channelId);
+        // Enviar Enter para forzar que aparezca el prompt
+        setTimeout(() => {
+          sshService.send(channelId, '\n');
+        }, 300);
       } else {
-        writeln(`\x1b[31mConnection failed. Click reconnect to retry.\x1b[0m`);
+        writeln(`\x1b[31mConexión fallida. Haz clic en reconectar para reintentar.\x1b[0m`);
         hasConnectedRef.current = false;
         addToast({
           type: 'error',
@@ -145,6 +156,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       if (channelToClean) {
         sshService.stopReading(channelToClean);
       }
+      // Disable auto-reconnect when unmounting
       sshService.disableAutoReconnect(tabId);
       const persisted = bufferRef.current || getBufferText();
       setTabBuffer(tabId, persisted || '');
@@ -166,20 +178,17 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       await sshService.disconnect(tabId, tab.channelId);
     }
 
-    writeln(`\r\n\x1b[33mReconnecting to ${session.name} (${session.host})...\x1b[0m`);
+    writeln(`\r\n\x1b[33mReconectando...\x1b[0m\r\n`);
     updateTabStatus(tabId, 'connecting');
 
     const { cols, rows } = getSize();
     const channelId = await sshService.connect(tabId, session, cols, rows);
     if (channelId) {
-      currentChannelRef.current = channelId;
       setTimeout(() => fit(), 100);
       sshService.startReading(channelId, (data) => {
         write(data);
         bufferRef.current = trimBuffer(bufferRef.current + data, MAX_BUFFER_SIZE);
       });
-    } else {
-      writeln(`\x1b[31mReconnection failed.\x1b[0m`);
     }
   };
 
@@ -187,7 +196,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     if (!tab?.channelId) return;
 
     await sshService.disconnect(tabId, tab.channelId);
-    writeln(`\r\n\x1b[33m━━━ Session disconnected ━━━\x1b[0m\r\n`);
+    writeln(`\r\n\x1b[33m━━━ Sesión desconectada ━━━\x1b[0m\r\n`);
   };
 
   const handleClose = async () => {
@@ -199,11 +208,20 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
   const sanitizeCopiedText = (raw: string) => {
     return raw
-      .replace(/\x1b\[[0-9;]*m/g, '') // Strip ANSI escape codes
       .split('\n')
+      // Filtrar líneas de "last login" y similares
       .filter((line) => !/^last login/i.test(line.trim()))
-      .filter((line) => !/^Connecting to /i.test(line.trim()))
-      .filter((line) => !/^Reconnecting to /i.test(line.trim()))
+      // Eliminar líneas vacías duplicadas consecutivas
+      .reduce((acc: string[], line, i, arr) => {
+        const trimmed = line.trim();
+        const prevTrimmed = arr[i - 1]?.trim() ?? '';
+        // No añadir si ambas están vacías (evitar múltiples líneas vacías)
+        if (trimmed === '' && prevTrimmed === '' && i > 0) {
+          return acc;
+        }
+        acc.push(line);
+        return acc;
+      }, [])
       .join('\n')
       .trim();
   };
@@ -255,119 +273,182 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   if (!tab || !session) return null;
 
   const statusConfig = {
-    idle: { color: 'text-zinc-500', label: 'Idle' },
-    connecting: { color: 'text-yellow-500 animate-pulse', label: 'Connecting...' },
-    connected: { color: 'text-green-500', label: 'Connected' },
-    disconnected: { color: 'text-zinc-500', label: 'Disconnected' },
-    error: { color: 'text-red-500', label: 'Error' },
+    idle: { color: 'text-[var(--text-tertiary)]', label: 'Inactivo' },
+    connecting: { color: 'text-[var(--warning)] animate-pulse', label: 'Conectando...' },
+    connected: { color: 'text-[var(--success)]', label: 'Conectado' },
+    disconnected: { color: 'text-[var(--text-tertiary)]', label: 'Desconectado' },
+    error: { color: 'text-[var(--error)]', label: 'Error' },
   }[tab.status];
 
   const isConnected = tab.status === 'connected';
 
-  const handleFileBrowserNavigate = useCallback((path: string) => {
-    if (tab?.channelId) {
-      sshService.send(tab.channelId, `cd "${path}"\n`);
-    }
-  }, [tab?.channelId]);
-
   return (
-    <div className="h-full flex overflow-hidden" style={{ backgroundColor: terminalBackground }}>
-      {/* Main Terminal Section */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Tab Header */}
-        <div className="flex items-center justify-between px-4 py-2 border-b shrink-0 bg-zinc-900/80 border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Circle className={`w-2.5 h-2.5 ${statusConfig.color}`} fill="currentColor" />
-              <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-zinc-400">
-                {statusConfig.label}
-              </span>
-            </div>
-            <span className="text-sm font-medium text-white" title={tab.title}>
-              {tab.title}
-            </span>
-            <span className="text-xs text-zinc-500">
-              {session.username}@{session.host}:{session.port}
+    <div className="h-full flex flex-col overflow-hidden" style={{ backgroundColor: terminalBackground }}>
+      {/* Tab Header */}
+      <div className={`flex items-center justify-between px-4 py-2 border-b shrink-0 ${
+        isDark
+          ? 'bg-[var(--bg-elevated)] border-[var(--border-primary)]'
+          : 'bg-[var(--bg-primary)] border-[var(--border-primary)]'
+      }`}>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Circle className={`w-2.5 h-2.5 ${statusConfig.color}`} fill="currentColor" />
+            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+              isDark ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+            }`}>
+              {statusConfig.label}
             </span>
           </div>
-          <div className="flex items-center gap-1">
-            {isConnected && (
-              <>
-                <button
-                  onClick={() => setShowFileBrowser(!showFileBrowser)}
-                  aria-label="File Browser"
-                  className={`p-1.5 rounded-lg transition-colors hover:bg-white/5 ${
-                    showFileBrowser ? 'text-blue-400 bg-blue-500/10' : 'text-zinc-400 hover:text-blue-400'
-                  }`}
-                  title="File Browser (SFTP)"
-                >
-                  <FolderOpen className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleStop}
-                  aria-label="Disconnect"
-                  className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-orange-400"
-                  title="Disconnect"
-                >
-                  <StopCircle className="w-4 h-4" />
-                </button>
-              </>
-            )}
-            <button
-              onClick={handleCopyOutput}
-              aria-label="Copiar todo"
-              className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-white/5 text-zinc-400 hover:text-blue-300"
-              title="Copiar todo"
-            >
-              <Copy className="w-4 h-4" />
-              <span>All</span>
-            </button>
-            <button
-              onClick={handleCopyLastCommand}
-              aria-label="Copiar último bloque"
-              className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-white/5 text-zinc-400 hover:text-emerald-300"
-              title="Copiar último comando/bloque"
-            >
-              <ClipboardList className="w-4 h-4" />
-              <span>Last</span>
-            </button>
-            {(tab.status === 'disconnected' || tab.status === 'error') && (
-              <button
-                onClick={handleReconnect}
-                aria-label="Reconnect"
-                className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-green-400"
-                title="Reconnect"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
-            )}
-            <button
-              onClick={handleClose}
-              aria-label="Cerrar pestaña"
-              className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-red-400"
-              title="Close"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <span
+            className="text-sm font-semibold text-[var(--text-primary)]"
+            title={tab.title}
+          >
+            {tab.title}
+          </span>
+          <span className="text-xs font-medium text-[var(--text-secondary)]">
+            {session.username}@{session.host}:{session.port}
+          </span>
         </div>
+        <div className="flex items-center gap-1">
+          {/* Zoom Controls */}
+          <div className={`flex items-center gap-0.5 mr-2 border-r pr-2 ${isDark ? 'border-[var(--border-primary)]' : 'border-[var(--border-primary)]'}`}>
+            <button
+              onClick={() => setTerminalZoom(terminalZoom - 0.1)}
+              className={`p-1 rounded transition-colors ${
+                isDark ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Reducir zoom"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className={`text-[10px] w-7 text-center font-mono font-medium ${isDark ? 'text-[var(--text-secondary)]' : 'text-[var(--text-secondary)]'}`}>
+              {Math.round(terminalZoom * 100)}%
+            </span>
+            <button
+              onClick={() => setTerminalZoom(terminalZoom + 0.1)}
+              className={`p-1 rounded transition-colors ${
+                isDark ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Aumentar zoom"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          {isConnected && (
+            <>
+              <button
+                onClick={() => setShowFileBrowser(!showFileBrowser)}
+                aria-label="Explorador de archivos"
+                className={`p-1.5 rounded-lg transition-colors ${
+                  showFileBrowser
+                    ? 'text-[var(--accent-primary)] bg-[var(--accent-primary)]/10'
+                    : isDark
+                      ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]'
+                      : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]'
+                }`}
+                title="Explorador de archivos (SFTP)"
+              >
+                <FolderOpen className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleStop}
+                aria-label="Desconectar"
+                className={`p-1.5 rounded-lg transition-colors ${
+                  isDark
+                    ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--warning)]'
+                    : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--warning)]'
+                }`}
+                title="Desconectar"
+              >
+                <StopCircle className="w-4 h-4" />
+              </button>
+            </>
+          )}
+          <button
+            onClick={handleCopyOutput}
+              aria-label="Copiar todo"
+            className={`px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight ${
+              isDark
+                ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]'
+                : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]'
+            }`}
+            title="Copiar todo"
+          >
+            <Copy className="w-4 h-4" />
+            <span>Todo</span>
+          </button>
+          <button
+            onClick={handleCopyLastCommand}
+              aria-label="Copiar último bloque"
+            className={`px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight ${
+              isDark
+                ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--success)]'
+                : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--success)]'
+            }`}
+            title="Copiar último comando/bloque"
+          >
+            <ClipboardList className="w-4 h-4" />
+            <span>Último</span>
+          </button>
+          {(tab.status === 'disconnected' || tab.status === 'error') && (
+            <button
+              onClick={handleReconnect}
+              aria-label="Reconectar"
+              className={`p-1.5 rounded-lg transition-colors ${
+                isDark
+                  ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--success)]'
+                  : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--success)]'
+              }`}
+              title="Reconectar"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            onClick={handleClose}
+            aria-label="Cerrar pestaña"
+            className={`p-1.5 rounded-lg transition-colors ${
+              isDark
+                ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--error)]'
+                : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--error)]'
+            }`}
+            title="Cerrar"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
 
+      {/* Main content area with optional FileBrowser */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* Terminal Container */}
         <div
           ref={containerRef}
-          className="flex-1 p-2 overflow-hidden min-h-0"
+          className="flex-1 min-h-0 min-w-0"
+          style={{ overflow: 'hidden', padding: '8px' }}
           onClick={() => focus()}
         />
-      </div>
 
-      {/* File Browser Panel */}
-      {showFileBrowser && isConnected && (
-        <FileBrowser
-          channelId={tab.channelId ?? null}
-          onClose={() => setShowFileBrowser(false)}
-          onNavigate={handleFileBrowserNavigate}
-        />
-      )}
+        {/* File Browser Panel */}
+        {showFileBrowser && isConnected && (
+          <FileBrowser
+            channelId={tab.channelId ?? null}
+            onClose={() => setShowFileBrowser(false)}
+            onNavigate={(path) => {
+              // Optionally cd in terminal too
+              if (tab.channelId) {
+                sshService.send(tab.channelId, `cd "${path}"\n`);
+              }
+            }}
+            onCommand={(command) => {
+              // Log SFTP operations in terminal
+              if (tab.channelId && terminalRef.current) {
+                terminalRef.current.write(`\r\n\x1b[90m# ${command}\x1b[0m\r\n`);
+              }
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }

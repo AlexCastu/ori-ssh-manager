@@ -89,12 +89,14 @@ impl SshManager {
         };
 
         // Get canonical path
-        let canonical_path = sftp.realpath(Path::new(&resolved_path))
+        let canonical_path = sftp
+            .realpath(Path::new(&resolved_path))
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| resolved_path.clone());
 
         // Read directory contents
-        let dir_entries = sftp.readdir(Path::new(&canonical_path))
+        let dir_entries = sftp
+            .readdir(Path::new(&canonical_path))
             .map_err(|e| SshError::ChannelError(format!("Failed to read directory: {}", e)))?;
 
         let mut entries: Vec<FileEntry> = dir_entries
@@ -109,7 +111,8 @@ impl SshManager {
                 let is_dir = stat.is_dir();
                 let is_symlink = stat.file_type().is_symlink();
                 let size = stat.size.unwrap_or(0);
-                let permissions = stat.perm
+                let permissions = stat
+                    .perm
                     .map(|p| format_permissions(p))
                     .unwrap_or_else(|| "---------".to_string());
                 let modified = stat.mtime.map(|t| t as i64);
@@ -127,12 +130,10 @@ impl SshManager {
             .collect();
 
         // Sort: directories first, then alphabetically
-        entries.sort_by(|a, b| {
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-            }
+        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
         });
 
         Ok(ListDirResult {
@@ -143,30 +144,37 @@ impl SshManager {
     }
 
     /// Download a file from remote server
-    pub fn sftp_download(&self, channel_id: &str, remote_path: &str, local_path: &str) -> Result<u64, SshError> {
+    pub fn sftp_download(
+        &self,
+        channel_id: &str,
+        remote_path: &str,
+        local_path: &str,
+    ) -> Result<u64, SshError> {
         let sftp = self.get_sftp_blocking(channel_id)?;
 
         // Open remote file
-        let mut remote_file = sftp.open(Path::new(remote_path))
+        let mut remote_file = sftp
+            .open(Path::new(remote_path))
             .map_err(|e| SshError::ChannelError(format!("Failed to open remote file: {}", e)))?;
 
         // Create local file
-        let mut local_file = File::create(local_path)
-            .map_err(|e| SshError::IoError(e))?;
+        let mut local_file = File::create(local_path).map_err(|e| SshError::IoError(e))?;
 
         // Copy contents
         let mut buffer = vec![0u8; 32768]; // 32KB buffer
         let mut total_bytes = 0u64;
 
         loop {
-            let bytes_read = remote_file.read(&mut buffer)
+            let bytes_read = remote_file
+                .read(&mut buffer)
                 .map_err(|e| SshError::IoError(e))?;
 
             if bytes_read == 0 {
                 break;
             }
 
-            local_file.write_all(&buffer[..bytes_read])
+            local_file
+                .write_all(&buffer[..bytes_read])
                 .map_err(|e| SshError::IoError(e))?;
 
             total_bytes += bytes_read as u64;
@@ -176,15 +184,20 @@ impl SshManager {
     }
 
     /// Upload a file to remote server
-    pub fn sftp_upload(&self, channel_id: &str, local_path: &str, remote_path: &str) -> Result<u64, SshError> {
+    pub fn sftp_upload(
+        &self,
+        channel_id: &str,
+        local_path: &str,
+        remote_path: &str,
+    ) -> Result<u64, SshError> {
         let sftp = self.get_sftp_blocking(channel_id)?;
 
         // Open local file
-        let mut local_file = File::open(local_path)
-            .map_err(|e| SshError::IoError(e))?;
+        let mut local_file = File::open(local_path).map_err(|e| SshError::IoError(e))?;
 
         // Create remote file
-        let mut remote_file = sftp.create(Path::new(remote_path))
+        let mut remote_file = sftp
+            .create(Path::new(remote_path))
             .map_err(|e| SshError::ChannelError(format!("Failed to create remote file: {}", e)))?;
 
         // Copy contents
@@ -192,14 +205,16 @@ impl SshManager {
         let mut total_bytes = 0u64;
 
         loop {
-            let bytes_read = local_file.read(&mut buffer)
+            let bytes_read = local_file
+                .read(&mut buffer)
                 .map_err(|e| SshError::IoError(e))?;
 
             if bytes_read == 0 {
                 break;
             }
 
-            remote_file.write_all(&buffer[..bytes_read])
+            remote_file
+                .write_all(&buffer[..bytes_read])
                 .map_err(|e| SshError::IoError(e))?;
 
             total_bytes += bytes_read as u64;
@@ -230,18 +245,36 @@ impl SshManager {
     }
 
     /// Rename a file or directory on remote server
-    pub fn sftp_rename(&self, channel_id: &str, old_path: &str, new_path: &str) -> Result<(), SshError> {
+    pub fn sftp_rename(
+        &self,
+        channel_id: &str,
+        old_path: &str,
+        new_path: &str,
+    ) -> Result<(), SshError> {
         let sftp = self.get_sftp_blocking(channel_id)?;
 
         sftp.rename(Path::new(old_path), Path::new(new_path), None)
             .map_err(|e| SshError::ChannelError(format!("Failed to rename: {}", e)))
     }
 
+    /// Create an empty file on remote server (touch)
+    pub fn sftp_touch(&self, channel_id: &str, path: &str) -> Result<(), SshError> {
+        let sftp = self.get_sftp_blocking(channel_id)?;
+
+        // Create an empty file
+        let _file = sftp
+            .create(Path::new(path))
+            .map_err(|e| SshError::ChannelError(format!("Failed to create file: {}", e)))?;
+
+        Ok(())
+    }
+
     /// Get file/directory info
     pub fn sftp_stat(&self, channel_id: &str, path: &str) -> Result<FileEntry, SshError> {
         let sftp = self.get_sftp_blocking(channel_id)?;
 
-        let stat = sftp.stat(Path::new(path))
+        let stat = sftp
+            .stat(Path::new(path))
             .map_err(|e| SshError::ChannelError(format!("Failed to stat: {}", e)))?;
 
         let name = Path::new(path)
@@ -255,7 +288,8 @@ impl SshManager {
             is_dir: stat.is_dir(),
             is_symlink: stat.file_type().is_symlink(),
             size: stat.size.unwrap_or(0),
-            permissions: stat.perm
+            permissions: stat
+                .perm
                 .map(|p| format_permissions(p))
                 .unwrap_or_else(|| "---------".to_string()),
             modified: stat.mtime.map(|t| t as i64),

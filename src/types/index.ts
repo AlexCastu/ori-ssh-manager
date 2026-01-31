@@ -54,11 +54,14 @@ export interface AppSettings {
 
 export type TerminalFontSize = 'small' | 'medium' | 'large';
 
+export type CommandCategory = 'files' | 'system' | 'network' | 'docker' | 'logs' | 'other';
+
 export interface SavedCommand {
   id: string;
   sessionId?: string;
   name: string;
   command: string;
+  category?: CommandCategory;
 }
 
 // ==================== SSH CONNECTION TYPES ====================
@@ -164,7 +167,7 @@ export interface UISlice {
   settingsModal: ModalState;
   sidebarCollapsed: boolean;
   commandPanelCollapsed: boolean;
-  terminalZoom: number; // 0.8 to 1.5 multiplier
+  terminalZoom: number;
   addToast: (toast: Omit<ToastMessage, 'id'>) => void;
   removeToast: (id: string) => void;
   openSessionModal: (data: { session?: Session; mode: 'create' | 'edit' }) => void;

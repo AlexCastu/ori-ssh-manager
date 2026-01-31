@@ -4,10 +4,61 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 
+// Nord Dark theme
+const NORD_DARK_THEME = {
+  background: '#2e3440',
+  foreground: '#eceff4',
+  cursor: '#88c0d0',
+  cursorAccent: '#2e3440',
+  selectionBackground: 'rgba(136, 192, 208, 0.3)',
+  black: '#3b4252',
+  red: '#bf616a',
+  green: '#a3be8c',
+  yellow: '#ebcb8b',
+  blue: '#81a1c1',
+  magenta: '#b48ead',
+  cyan: '#88c0d0',
+  white: '#e5e9f0',
+  brightBlack: '#4c566a',
+  brightRed: '#bf616a',
+  brightGreen: '#a3be8c',
+  brightYellow: '#ebcb8b',
+  brightBlue: '#81a1c1',
+  brightMagenta: '#b48ead',
+  brightCyan: '#8fbcbb',
+  brightWhite: '#eceff4',
+};
+
+// Nord Light theme
+const NORD_LIGHT_THEME = {
+  background: '#eceff4',
+  foreground: '#2e3440',
+  cursor: '#5e81ac',
+  cursorAccent: '#eceff4',
+  selectionBackground: 'rgba(94, 129, 172, 0.3)',
+  black: '#2e3440',
+  red: '#bf616a',
+  green: '#a3be8c',
+  yellow: '#d08770',
+  blue: '#5e81ac',
+  magenta: '#b48ead',
+  cyan: '#8fbcbb',
+  white: '#e5e9f0',
+  brightBlack: '#4c566a',
+  brightRed: '#bf616a',
+  brightGreen: '#a3be8c',
+  brightYellow: '#d08770',
+  brightBlue: '#81a1c1',
+  brightMagenta: '#b48ead',
+  brightCyan: '#88c0d0',
+  brightWhite: '#eceff4',
+};
+
 interface UseTerminalOptions {
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
   fontSize?: number;
+  terminalTheme?: 'nord-dark' | 'nord-light';
 }
 
 export function useTerminal(options: UseTerminalOptions = {}) {
@@ -16,41 +67,26 @@ export function useTerminal(options: UseTerminalOptions = {}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Get the appropriate theme
+  const getTheme = () => {
+    return options.terminalTheme === 'nord-light' ? NORD_LIGHT_THEME : NORD_DARK_THEME;
+  };
+
   const initTerminal = useCallback((container: HTMLDivElement) => {
     if (terminalRef.current) {
       terminalRef.current.dispose();
     }
+
+    const theme = getTheme();
 
     const terminal = new Terminal({
       cursorBlink: true,
       cursorStyle: 'block',
       fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", Menlo, Monaco, "Courier New", monospace',
       fontSize: options.fontSize ?? 14,
-      lineHeight: 1.2,
-      theme: {
-        background: '#0a0a0f',
-        foreground: '#e4e4e7',
-        cursor: '#3b82f6',
-        cursorAccent: '#0a0a0f',
-        selectionBackground: '#3b82f640',
-        black: '#18181b',
-        red: '#ef4444',
-        green: '#22c55e',
-        yellow: '#eab308',
-        blue: '#3b82f6',
-        magenta: '#a855f7',
-        cyan: '#06b6d4',
-        white: '#e4e4e7',
-        brightBlack: '#52525b',
-        brightRed: '#f87171',
-        brightGreen: '#4ade80',
-        brightYellow: '#facc15',
-        brightBlue: '#60a5fa',
-        brightMagenta: '#c084fc',
-        brightCyan: '#22d3ee',
-        brightWhite: '#fafafa',
-      },
-      allowTransparency: true,
+      lineHeight: 1.0,
+      theme,
+      allowTransparency: false,
       scrollback: 10000,
     });
 
@@ -76,9 +112,12 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     const resizeObserver = new ResizeObserver(() => {
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       resizeTimerRef.current = setTimeout(() => {
-        fitAddon.fit();
-        options.onResize?.(terminal.cols, terminal.rows);
-      }, 50);
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(() => {
+          fitAddon.fit();
+          options.onResize?.(terminal.cols, terminal.rows);
+        });
+      }, 100);
     });
     resizeObserver.observe(container);
 
@@ -191,6 +230,13 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     }
   }, []);
 
+  const setTheme = useCallback((themeName: 'nord-dark' | 'nord-light') => {
+    if (terminalRef.current) {
+      const theme = themeName === 'nord-light' ? NORD_LIGHT_THEME : NORD_DARK_THEME;
+      terminalRef.current.options.theme = theme;
+    }
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -211,6 +257,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     getLastBlock,
     scrollToBottom,
     setFontSize,
+    setTheme,
     terminal: terminalRef.current,
   };
 }

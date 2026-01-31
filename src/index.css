@@ -2,42 +2,186 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Modern Dark Theme - Professional Grayscale */
+/* SSH Manager - Modern 2026 Theme System */
 @layer base {
+  /* 🌙 DARK MODE */
   :root,
   :root.dark {
-    --background: 0 0% 7%;
-    --foreground: 0 0% 95%;
+    /* Fondos */
+    --bg-primary: #12131a;
+    --bg-secondary: #1a1b23;
+    --bg-tertiary: #22242d;
+    --bg-elevated: #2a2d38;
+    --bg-hover: #343844;
+    --bg-input: #1e2028;
 
-    /* Primary Colors - Subtle Blue Accent */
-    --theme-primary: #ffffff;
-    --theme-secondary: #a1a1aa;
-    --theme-accent: #3b82f6;
-    --theme-success: #22c55e;
-    --theme-error: #ef4444;
-    --theme-warning: #f59e0b;
+    /* Textos */
+    --text-primary: #f0f2f5;
+    --text-secondary: #b8bcc8;
+    --text-tertiary: #7a8090;
+    --text-inverse: #1a1b1e;
 
-    /* Background tones */
-    --bg-base: #09090b;
-    --bg-elevated: #18181b;
-    --bg-surface: #27272a;
-    --bg-hover: #3f3f46;
+    /* Bordes y divisores */
+    --border-primary: #3a3f4a;
+    --border-secondary: #2e323c;
+    --divider: rgba(255, 255, 255, 0.1);
+
+    /* Acento Principal (Terminal/SSH) */
+    --accent-primary: #00d4aa;
+    --accent-hover: #00ecc0;
+    --accent-active: #00bfa5;
+    --accent-subtle: rgba(0, 212, 170, 0.12);
+
+    /* Estados del Sistema */
+    --success: #52c97f;
+    --success-bg: rgba(82, 201, 127, 0.12);
+    --warning: #ffb347;
+    --warning-bg: rgba(255, 179, 71, 0.12);
+    --error: #ff6b6b;
+    --error-bg: rgba(255, 107, 107, 0.12);
+    --info: #4fc3f7;
+    --info-bg: rgba(79, 195, 247, 0.12);
+
+    /* Tipos de Archivo (navegación) */
+    --file-folder: #fbbf24;
+    --file-code: #a78bfa;
+    --file-image: #f472b6;
+    --file-document: #60a5fa;
+    --file-archive: #fb923c;
+    --file-config: #a3e635;
+    --file-executable: #ef4444;
+
+    /* Terminal Específico */
+    --terminal-bg: #1a1b1e;
+    --terminal-fg: #e6e8eb;
+    --terminal-cursor: #00d4aa;
+    --terminal-selection: rgba(0, 212, 170, 0.25);
+
+    /* ANSI Colors */
+    --ansi-black: #2d3037;
+    --ansi-red: #ff6b6b;
+    --ansi-green: #52c97f;
+    --ansi-yellow: #fbbf24;
+    --ansi-blue: #4fc3f7;
+    --ansi-magenta: #c084fc;
+    --ansi-cyan: #00d4aa;
+    --ansi-white: #e6e8eb;
+
+    /* ANSI Bright */
+    --ansi-bright-black: #6e7480;
+    --ansi-bright-red: #ff8787;
+    --ansi-bright-green: #6ee7b7;
+    --ansi-bright-yellow: #fcd34d;
+    --ansi-bright-blue: #7dd3fc;
+    --ansi-bright-magenta: #d8b4fe;
+    --ansi-bright-cyan: #5eead4;
+    --ansi-bright-white: #f8fafc;
+
+    /* Efectos y Sombras */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.45);
+    --shadow-focus: 0 0 0 3px rgba(0, 212, 170, 0.35);
+    --glow-accent: 0 0 20px rgba(0, 212, 170, 0.25);
 
     /* Glass effects */
-    --glass-card-bg: rgba(24, 24, 27, 0.8);
-    --glass-sidebar-bg: rgba(9, 9, 11, 0.95);
-    --glass-border: rgba(63, 63, 70, 0.5);
-    --glass-border-light: rgba(63, 63, 70, 0.3);
-    --glass-border-hover: rgba(113, 113, 122, 0.5);
+    --glass-card-bg: rgba(36, 38, 43, 0.8);
+    --glass-sidebar-bg: rgba(26, 27, 30, 0.95);
+    --glass-border: rgba(53, 56, 63, 0.5);
+    --glass-border-light: rgba(53, 56, 63, 0.3);
+    --glass-border-hover: rgba(61, 64, 72, 0.6);
+  }
 
-    /* Text colors */
-    --text-primary: #fafafa;
-    --text-secondary: #a1a1aa;
-    --text-muted: #71717a;
+  /* ☀️ LIGHT MODE */
+  :root.light {
+    /* Fondos */
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8f9fb;
+    --bg-tertiary: #f0f2f5;
+    --bg-elevated: #ffffff;
+    --bg-hover: #e8ebf0;
+    --bg-input: #f8f9fb;
+
+    /* Textos */
+    --text-primary: #111827;
+    --text-secondary: #4b5563;
+    --text-tertiary: #6b7280;
+    --text-inverse: #ffffff;
+
+    /* Bordes y divisores */
+    --border-primary: #d1d5db;
+    --border-secondary: #e5e7eb;
+    --divider: rgba(0, 0, 0, 0.06);
+
+    /* Acento Principal (Terminal/SSH) */
+    --accent-primary: #0891b2;
+    --accent-hover: #06b6d4;
+    --accent-active: #0e7490;
+    --accent-subtle: rgba(8, 145, 178, 0.08);
+
+    /* Estados del Sistema */
+    --success: #059669;
+    --success-bg: rgba(5, 150, 105, 0.08);
+    --warning: #d97706;
+    --warning-bg: rgba(217, 119, 6, 0.08);
+    --error: #dc2626;
+    --error-bg: rgba(220, 38, 38, 0.08);
+    --info: #0284c7;
+    --info-bg: rgba(2, 132, 199, 0.08);
+
+    /* Tipos de Archivo (navegación) */
+    --file-folder: #d97706;
+    --file-code: #7c3aed;
+    --file-image: #db2777;
+    --file-document: #2563eb;
+    --file-archive: #ea580c;
+    --file-config: #65a30d;
+    --file-executable: #dc2626;
+
+    /* Terminal Específico */
+    --terminal-bg: #ffffff;
+    --terminal-fg: #1f2937;
+    --terminal-cursor: #0891b2;
+    --terminal-selection: rgba(8, 145, 178, 0.2);
+
+    /* ANSI Colors */
+    --ansi-black: #1f2937;
+    --ansi-red: #dc2626;
+    --ansi-green: #059669;
+    --ansi-yellow: #d97706;
+    --ansi-blue: #0284c7;
+    --ansi-magenta: #9333ea;
+    --ansi-cyan: #0891b2;
+    --ansi-white: #f3f4f6;
+
+    /* ANSI Bright */
+    --ansi-bright-black: #6b7280;
+    --ansi-bright-red: #ef4444;
+    --ansi-bright-green: #10b981;
+    --ansi-bright-yellow: #f59e0b;
+    --ansi-bright-blue: #3b82f6;
+    --ansi-bright-magenta: #a855f7;
+    --ansi-bright-cyan: #06b6d4;
+    --ansi-bright-white: #ffffff;
+
+    /* Efectos y Sombras */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.12);
+    --shadow-focus: 0 0 0 3px rgba(8, 145, 178, 0.25);
+    --glow-accent: 0 0 20px rgba(8, 145, 178, 0.15);
+
+    /* Glass effects */
+    --glass-card-bg: rgba(255, 255, 255, 0.8);
+    --glass-sidebar-bg: rgba(250, 251, 252, 0.95);
+    --glass-border: rgba(209, 213, 219, 0.5);
+    --glass-border-light: rgba(209, 213, 219, 0.3);
+    --glass-border-hover: rgba(156, 163, 175, 0.5);
   }
 
   * {
     border-color: var(--glass-border-light);
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   }
 
   html, body, #root {
@@ -48,8 +192,9 @@
   body {
     @apply antialiased;
     color: var(--text-primary);
-    background: var(--bg-base);
+    background: var(--bg-primary);
     font-feature-settings: "rlig" 1, "calt" 1;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     margin: 0;
   }
 
@@ -64,16 +209,21 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #3f3f46;
+    background: var(--bg-hover);
     border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #52525b;
+    background: var(--text-tertiary);
   }
 
   ::selection {
-    background: rgba(59, 130, 246, 0.3);
+    background: var(--accent-subtle);
+    color: var(--text-primary);
+  }
+
+  :root.dark ::selection {
+    background: rgba(0, 212, 170, 0.3);
     color: white;
   }
 }
@@ -100,52 +250,69 @@
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     border: 1px solid var(--glass-border);
-    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-lg);
     @apply rounded-2xl;
   }
 
-  /* Primary Button */
+  /* Primary Button - Accent color */
   .btn-primary {
-    @apply px-4 py-2.5 text-white font-medium rounded-xl transition-all duration-200;
-    background: linear-gradient(135deg, #3b82f6, #2563eb);
-    border: 1px solid rgba(59, 130, 246, 0.3);
+    @apply px-4 py-2.5 font-medium rounded-xl transition-all duration-200;
+    background: var(--accent-primary);
+    color: var(--text-inverse);
+    border: 1px solid transparent;
   }
 
   .btn-primary:hover {
-    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3);
+    background: var(--accent-hover);
+    box-shadow: var(--glow-accent);
     transform: translateY(-1px);
+  }
+
+  .btn-primary:active {
+    background: var(--accent-active);
+    transform: translateY(0);
+  }
+
+  .btn-primary:focus-visible {
+    box-shadow: var(--shadow-focus);
+    outline: none;
   }
 
   /* Secondary Button */
   .btn-secondary {
     @apply px-4 py-2 font-medium rounded-xl transition-all duration-200;
-    background: var(--bg-elevated);
+    background: var(--bg-tertiary);
     border: 1px solid var(--glass-border);
     color: var(--text-secondary);
   }
 
   .btn-secondary:hover {
-    background: var(--bg-surface);
+    background: var(--bg-hover);
     border-color: var(--glass-border-hover);
     color: var(--text-primary);
+  }
+
+  .btn-secondary:focus-visible {
+    box-shadow: var(--shadow-focus);
+    outline: none;
   }
 
   /* Input fields */
   .input-base {
     @apply w-full px-4 py-2.5 rounded-xl transition-all duration-200;
     color: var(--text-primary);
-    background: var(--bg-elevated);
+    background: var(--bg-secondary);
     border: 1px solid var(--glass-border-light);
   }
 
   .input-base::placeholder {
-    color: var(--text-muted);
+    color: var(--text-tertiary);
   }
 
   .input-base:focus {
     outline: none;
-    border-color: rgba(59, 130, 246, 0.5);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    border-color: var(--accent-primary);
+    box-shadow: var(--shadow-focus);
   }
 
   /* Text utilities */
@@ -158,12 +325,12 @@
   }
 
   .text-theme-muted {
-    color: var(--text-muted);
+    color: var(--text-tertiary);
   }
 
   /* Background utilities */
   .bg-theme-base {
-    background: var(--bg-base);
+    background: var(--bg-primary);
   }
 
   .bg-theme-elevated {
@@ -171,8 +338,38 @@
   }
 
   .bg-theme-surface {
-    background: var(--bg-surface);
+    background: var(--bg-tertiary);
   }
+
+  /* Status colors */
+  .status-success {
+    color: var(--success);
+    background: var(--success-bg);
+  }
+
+  .status-warning {
+    color: var(--warning);
+    background: var(--warning-bg);
+  }
+
+  .status-error {
+    color: var(--error);
+    background: var(--error-bg);
+  }
+
+  .status-info {
+    color: var(--info);
+    background: var(--info-bg);
+  }
+
+  /* File type colors */
+  .file-folder { color: var(--file-folder); }
+  .file-code { color: var(--file-code); }
+  .file-image { color: var(--file-image); }
+  .file-document { color: var(--file-document); }
+  .file-archive { color: var(--file-archive); }
+  .file-config { color: var(--file-config); }
+  .file-executable { color: var(--file-executable); }
 }
 
 /* Animations */
@@ -192,9 +389,9 @@
     }
   }
 
-  /* Main app background - clean dark gradient */
+  /* Main app background - clean gradient */
   .gradient-mesh {
-    background: linear-gradient(180deg, #09090b 0%, #0a0a0c 50%, #09090b 100%);
+    background: var(--bg-primary);
     position: relative;
   }
 
@@ -205,13 +402,13 @@
     right: 0;
     width: 50%;
     height: 50%;
-    background: radial-gradient(ellipse at 100% 0%, rgba(59, 130, 246, 0.03) 0%, transparent 60%);
+    background: radial-gradient(ellipse at 100% 0%, var(--accent-subtle) 0%, transparent 60%);
     pointer-events: none;
   }
 
   /* Subtle glow */
-  .glow-blue {
-    box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+  .glow-accent {
+    box-shadow: var(--glow-accent);
   }
 
   /* Hide scrollbar */
@@ -231,5 +428,11 @@
 
   .titlebar-no-drag {
     -webkit-app-region: no-drag;
+  }
+
+  /* Focus visible utilities */
+  .focus-ring:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
   }
 }

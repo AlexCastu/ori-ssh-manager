@@ -22,9 +22,10 @@ interface UseSftpOptions {
   channelId: string | null;
   initialPath?: string;
   onError?: (error: string) => void;
+  onCommand?: (command: string) => void; // Callback to log commands to terminal
 }
 
-export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOptions) {
+export function useSftp({ channelId, initialPath = '~', onError, onCommand }: UseSftpOptions) {
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [parentPath, setParentPath] = useState<string | null>(null);
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -32,17 +33,36 @@ export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOption
   const [error, setError] = useState<string | null>(null);
   const historyRef = useRef<string[]>([]);
 
+  // Flag to prevent concurrent operations
+  const isOperatingRef = useRef(false);
+  // Last operation timestamp for debouncing
+  const lastOpTimeRef = useRef(0);
+  const MIN_OP_INTERVAL = 300; // Minimum ms between operations
+
   const handleError = useCallback((msg: string) => {
     setError(msg);
     onError?.(msg);
   }, [onError]);
 
-  const listDir = useCallback(async (path: string) => {
+  const listDir = useCallback(async (path: string, skipDebounce = false) => {
     if (!channelId) {
-      handleError('No active SSH channel');
+      handleError('No hay canal SSH activo');
       return;
     }
 
+    // Prevent concurrent operations
+    if (isOperatingRef.current) {
+      return;
+    }
+
+    // Debounce rapid calls
+    const now = Date.now();
+    if (!skipDebounce && now - lastOpTimeRef.current < MIN_OP_INTERVAL) {
+      return;
+    }
+    lastOpTimeRef.current = now;
+
+    isOperatingRef.current = true;
     setLoading(true);
     setError(null);
 
@@ -56,38 +76,52 @@ export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOption
       setParentPath(result.parent_path);
       setEntries(result.entries);
     } catch (e) {
-      handleError(`Failed to list directory: ${e}`);
+      handleError(`Error al listar directorio: ${e}`);
     } finally {
       setLoading(false);
+      isOperatingRef.current = false;
     }
   }, [channelId, handleError]);
 
-  const navigateTo = useCallback(async (path: string) => {
+  const navigateTo = useCallback(async (path: string): Promise<string | null> => {
+    // Prevent if already operating
+    if (isOperatingRef.current) return null;
     historyRef.current.push(currentPath);
     await listDir(path);
+    return path;
   }, [currentPath, listDir]);
 
-  const navigateUp = useCallback(async () => {
+  const navigateUp = useCallback(async (): Promise<string | null> => {
+    if (isOperatingRef.current) return null;
     if (parentPath) {
       historyRef.current.push(currentPath);
       await listDir(parentPath);
+      return parentPath;
     }
+    return null;
   }, [parentPath, currentPath, listDir]);
 
-  const navigateBack = useCallback(async () => {
+  const navigateBack = useCallback(async (): Promise<string | null> => {
+    if (isOperatingRef.current) return null;
     const previousPath = historyRef.current.pop();
     if (previousPath) {
       await listDir(previousPath);
+      return previousPath;
     }
+    return null;
   }, [listDir]);
 
   const refresh = useCallback(() => {
-    return listDir(currentPath);
+    if (isOperatingRef.current) return Promise.resolve();
+    return listDir(currentPath, true); // Skip debounce for manual refresh
   }, [currentPath, listDir]);
+
+  // Check if currently operating (for UI to block interactions)
+  const isOperating = useCallback(() => isOperatingRef.current || loading, [loading]);
 
   const download = useCallback(async (remotePath: string, fileName: string) => {
     if (!channelId) {
-      handleError('No active SSH channel');
+      handleError('No hay canal SSH activo');
       return;
     }
 
@@ -95,7 +129,7 @@ export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOption
       // Open save dialog
       const localPath = await save({
         defaultPath: fileName,
-        title: 'Save file as...',
+        title: 'Guardar archivo como...',
       });
 
       if (!localPath) return; // User cancelled
@@ -109,7 +143,7 @@ export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOption
 
       return bytes;
     } catch (e) {
-      handleError(`Download failed: ${e}`);
+      handleError(`Descarga fallida: ${e}`);
     } finally {
       setLoading(false);
     }
@@ -117,7 +151,7 @@ export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOption
 
   const upload = useCallback(async (targetDir?: string) => {
     if (!channelId) {
-      handleError('No active SSH channel');
+      handleError('No hay canal SSH activo');
       return;
     }
 
@@ -125,7 +159,7 @@ export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOption
       // Open file picker dialog
       const localPath = await open({
         multiple: false,
-        title: 'Select file to upload',
+        title: 'Seleccionar archivo para subir',
       });
 
       if (!localPath) return; // User cancelled
@@ -145,7 +179,7 @@ export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOption
       await refresh();
       return bytes;
     } catch (e) {
-      handleError(`Upload failed: ${e}`);
+      handleError(`Subida fallida: ${e}`);
     } finally {
       setLoading(false);
     }
@@ -153,7 +187,7 @@ export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOption
 
   const mkdir = useCallback(async (name: string) => {
     if (!channelId) {
-      handleError('No active SSH channel');
+      handleError('No hay canal SSH activo');
       return;
     }
 
@@ -162,34 +196,36 @@ export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOption
     try {
       setLoading(true);
       await invoke('sftp_mkdir', { channelId, path });
+      onCommand?.(`mkdir "${path}"`);
       await refresh();
     } catch (e) {
-      handleError(`Failed to create directory: ${e}`);
+      handleError(`Error al crear directorio: ${e}`);
     } finally {
       setLoading(false);
     }
-  }, [channelId, currentPath, handleError, refresh]);
+  }, [channelId, currentPath, handleError, refresh, onCommand]);
 
   const deleteEntry = useCallback(async (path: string, isDir: boolean) => {
     if (!channelId) {
-      handleError('No active SSH channel');
+      handleError('No hay canal SSH activo');
       return;
     }
 
     try {
       setLoading(true);
       await invoke('sftp_delete', { channelId, path, isDir });
+      onCommand?.(isDir ? `rm -rf "${path}"` : `rm "${path}"`);
       await refresh();
     } catch (e) {
-      handleError(`Failed to delete: ${e}`);
+      handleError(`Error al eliminar: ${e}`);
     } finally {
       setLoading(false);
     }
-  }, [channelId, handleError, refresh]);
+  }, [channelId, handleError, refresh, onCommand]);
 
   const rename = useCallback(async (oldPath: string, newName: string) => {
     if (!channelId) {
-      handleError('No active SSH channel');
+      handleError('No hay canal SSH activo');
       return;
     }
 
@@ -201,13 +237,34 @@ export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOption
     try {
       setLoading(true);
       await invoke('sftp_rename', { channelId, oldPath, newPath });
+      onCommand?.(`mv "${oldPath}" "${newPath}"`);
       await refresh();
     } catch (e) {
-      handleError(`Failed to rename: ${e}`);
+      handleError(`Error al renombrar: ${e}`);
     } finally {
       setLoading(false);
     }
-  }, [channelId, handleError, refresh]);
+  }, [channelId, handleError, refresh, onCommand]);
+
+  const touch = useCallback(async (name: string) => {
+    if (!channelId) {
+      handleError('No hay canal SSH activo');
+      return;
+    }
+
+    const path = `${currentPath.replace(/\/$/, '')}/${name}`;
+
+    try {
+      setLoading(true);
+      await invoke('sftp_touch', { channelId, path });
+      onCommand?.(`touch "${path}"`);
+      await refresh();
+    } catch (e) {
+      handleError(`Error al crear archivo: ${e}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [channelId, currentPath, handleError, refresh, onCommand]);
 
   return {
     currentPath,
@@ -223,9 +280,11 @@ export function useSftp({ channelId, initialPath = '~', onError }: UseSftpOption
     download,
     upload,
     mkdir,
+    touch,
     deleteEntry,
     rename,
     canGoBack: historyRef.current.length > 0,
     canGoUp: parentPath !== null,
+    isOperating,
   };
 }
