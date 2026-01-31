@@ -38,7 +38,7 @@ export function TabBar() {
           const isActive = tab.id === activeTabId;
 
           return (
-            <motion.button
+            <motion.div
               key={tab.id}
               layout
               initial={{ opacity: 0, scale: 0.9 }}
@@ -46,7 +46,7 @@ export function TabBar() {
               exit={{ opacity: 0, scale: 0.9 }}
               onClick={() => setActiveTab(tab.id)}
               className={`
-                group flex items-center gap-2 px-2 py-1 rounded-lg text-sm
+                group flex items-center gap-2 px-2 py-1 rounded-lg text-sm cursor-pointer
                 transition-colors min-w-[100px] max-w-[180px]
                 ${isActive
                   ? isDark
@@ -74,7 +74,7 @@ export function TabBar() {
               >
                 <X className="w-3 h-3" />
               </button>
-            </motion.button>
+            </motion.div>
           );
         })}
       </AnimatePresence>

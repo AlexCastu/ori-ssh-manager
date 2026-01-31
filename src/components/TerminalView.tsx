@@ -29,19 +29,60 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   const currentChannelRef = useRef<string | null>(null);
   const bufferRef = useRef('');
   const [showFileBrowser, setShowFileBrowser] = useState(false);
+  const writeRef = useRef<((data: string) => void) | null>(null);
 
   const tab = tabs.find((t) => t.id === tabId);
   const session = sessions.find((s) => s.id === tab?.sessionId);
 
   const terminalBackground = settings?.terminalTheme === 'nord-light' ? '#eceff4' : '#2e3440';
 
+  // Track user input to detect exit commands
+  const inputBufferRef = useRef('');
+  
+  // Common exit commands across different platforms/shells
+  const EXIT_COMMANDS = ['exit', 'logout', 'quit', 'bye', 'disconnect', 'close', 'q', 'halt', 'poweroff', 'shutdown'];
+
   const handleData = useCallback(
     (data: string) => {
       if (tab?.channelId) {
+        // Track what user types to detect exit commands
+        if (data === '\r' || data === '\n') {
+          // User pressed Enter - check if they typed an exit command
+          const cmd = inputBufferRef.current.trim().toLowerCase();
+          if (EXIT_COMMANDS.includes(cmd)) {
+            // Mark this as intentional exit so we don't auto-reconnect
+            sshService.markIntentionalExit(tabId);
+            // Show message in terminal using ref
+            setTimeout(() => {
+              if (writeRef.current) {
+                writeRef.current('\r\n\x1b[33m[Sesión terminada por el usuario]\x1b[0m\r\n');
+              }
+            }, 100);
+          }
+          inputBufferRef.current = '';
+        } else if (data === '\x7f' || data === '\b') {
+          // Backspace
+          inputBufferRef.current = inputBufferRef.current.slice(0, -1);
+        } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
+          // Regular printable character
+          inputBufferRef.current += data;
+        } else if (data === '\x03') {
+          // Ctrl+C - clear buffer
+          inputBufferRef.current = '';
+        } else if (data === '\x04') {
+          // Ctrl+D - EOF, also an exit signal
+          sshService.markIntentionalExit(tabId);
+          setTimeout(() => {
+            if (writeRef.current) {
+              writeRef.current('\r\n\x1b[33m[Sesión terminada - EOF]\x1b[0m\r\n');
+            }
+          }, 100);
+        }
+        
         sshService.send(tab.channelId, data);
       }
     },
-    [tab?.channelId]
+    [tab?.channelId, tabId]
   );
 
   const handleResize = useCallback(
@@ -61,6 +102,11 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     fontSize: Math.round(14 * terminalZoom),
     terminalTheme: settings?.terminalTheme || 'nord-dark',
   });
+
+  // Keep writeRef updated
+  useEffect(() => {
+    writeRef.current = write;
+  }, [write]);
 
   // Update font size when zoom changes
   useEffect(() => {
@@ -131,10 +177,6 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       if (channelId) {
         hasConnectedRef.current = true;
         attachToChannel(channelId);
-        // Enviar Enter para forzar que aparezca el prompt
-        setTimeout(() => {
-          sshService.send(channelId, '\n');
-        }, 300);
       } else {
         writeln(`\x1b[31mConexión fallida. Haz clic en reconectar para reintentar.\x1b[0m`);
         hasConnectedRef.current = false;
