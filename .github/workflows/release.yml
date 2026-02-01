@@ -27,8 +27,6 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -38,7 +36,7 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build the app (universal)
+      - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -48,7 +46,6 @@ jobs:
           releaseBody: "Download and install ORI-SSHManager for your platform."
           releaseDraft: true
           prerelease: false
-          args: --target universal-apple-darwin
 
   release-windows:
     runs-on: windows-latest
