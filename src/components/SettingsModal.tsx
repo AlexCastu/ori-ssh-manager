@@ -61,43 +61,42 @@ export function SettingsModal() {
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.95, opacity: 0 }}
           onClick={(e) => e.stopPropagation()}
-          className={`w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl border p-6 shadow-2xl ${
+          className={`w-full max-w-3xl rounded-xl border p-4 shadow-2xl ${
             isDark
               ? 'border-[var(--border-primary)] bg-[var(--bg-elevated)]'
               : 'border-[var(--border-primary)] bg-[var(--bg-elevated)]'
           }`}
         >
           {/* Header */}
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-active)]">
-                <Monitor className="h-5 w-5 text-white" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-active)]">
+                <Monitor className="h-4 w-4 text-white" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-[var(--text-primary)]">Configuración</h2>
-                <p className="text-sm text-[var(--text-secondary)]">Personaliza tu experiencia</p>
+                <h2 className="text-base font-semibold text-[var(--text-primary)]">Configuración</h2>
               </div>
             </div>
             <button
               onClick={closeSettingsModal}
-              className={`rounded-lg p-2 transition-colors ${
+              className={`rounded-lg p-1.5 transition-colors ${
                 isDark
                   ? 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
               }`}
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </button>
           </div>
 
           {/* App Theme Selection */}
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-secondary)]">
               <Sun className="h-4 w-4" />
               <span>Apariencia</span>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-2">
               {appThemes.map((theme) => {
                 const isSelected = settings.appTheme === theme.id;
                 const Icon = theme.icon;
@@ -106,7 +105,7 @@ export function SettingsModal() {
                   <button
                     key={theme.id}
                     onClick={() => updateSettings({ appTheme: theme.id })}
-                    className={`group relative flex flex-col items-center gap-2 rounded-xl border p-3 transition-all ${
+                    className={`group relative flex flex-col items-center gap-1.5 rounded-xl border p-2 transition-all ${
                       isSelected
                         ? 'border-[var(--accent-primary)] bg-[var(--accent-subtle)]'
                         : isDark
@@ -132,14 +131,14 @@ export function SettingsModal() {
             </div>
           </div>
 
-          {/* Terminal Theme Selection */}
-          <div className="mt-6 space-y-4">
+          {/* Terminal Theme & Font */}
+          <div className="mt-4 space-y-3">
             <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-secondary)]">
               <Palette className="h-4 w-4" />
-              <span>Tema del Terminal</span>
+              <span>Terminal</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2">
               {terminalThemes.map((theme) => {
                 const isSelected = settings.terminalTheme === theme.id;
                 const Icon = theme.icon;
@@ -148,7 +147,7 @@ export function SettingsModal() {
                   <button
                     key={theme.id}
                     onClick={() => updateSettings({ terminalTheme: theme.id })}
-                    className={`group relative flex flex-col items-center gap-3 rounded-xl border p-4 transition-all ${
+                    className={`group relative flex flex-col items-center gap-2 rounded-xl border p-3 transition-all ${
                       isSelected
                         ? 'border-[var(--accent-primary)] bg-[var(--accent-subtle)]'
                         : isDark
@@ -156,9 +155,8 @@ export function SettingsModal() {
                           : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:border-[var(--accent-primary)]/50 hover:bg-[var(--bg-tertiary)]'
                     }`}
                   >
-                    {/* Theme Preview */}
                     <div
-                      className="flex h-14 w-full items-center justify-center rounded-lg border border-[var(--border-secondary)]"
+                      className="flex h-10 w-full items-center justify-center rounded-lg border border-[var(--border-secondary)]"
                       style={{ backgroundColor: theme.preview.bg }}
                     >
                       <div className="font-mono text-xs" style={{ color: theme.preview.fg }}>
@@ -166,7 +164,6 @@ export function SettingsModal() {
                       </div>
                     </div>
 
-                    {/* Theme Info */}
                     <div className="flex items-center gap-2">
                       <Icon className={`h-4 w-4 ${isSelected ? 'text-[var(--accent-primary)]' : 'text-[var(--text-secondary)]'}`} />
                       <span className={`text-sm font-medium ${isSelected ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
@@ -174,7 +171,6 @@ export function SettingsModal() {
                       </span>
                     </div>
 
-                    {/* Selected Indicator */}
                     {isSelected && (
                       <motion.div
                         layoutId="terminal-theme-indicator"
@@ -185,13 +181,45 @@ export function SettingsModal() {
                 );
               })}
             </div>
+
+            <div className={`rounded-lg border p-3 ${isDark ? 'border-[var(--border-primary)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)]'}`}>
+              <div className="text-xs font-medium text-[var(--text-tertiary)] mb-2">Fuente</div>
+              <select
+                value={settings.terminalFontFamily || ''}
+                onChange={(e) => updateSettings({ terminalFontFamily: e.target.value })}
+                className={`w-full px-3 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] appearance-none cursor-pointer ${
+                  isDark
+                    ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/40'
+                    : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/30'
+                }`}
+              >
+                <option value="JetBrainsMono Nerd Font, JetBrains Mono, Fira Code, SF Mono, Menlo, Monaco, Courier New, monospace">
+                  JetBrainsMono Nerd Font (recomendado)
+                </option>
+                <option value="MesloLGS NF, Menlo, Monaco, Courier New, monospace">
+                  MesloLGS NF
+                </option>
+                <option value="FiraCode Nerd Font, Fira Code, Menlo, Monaco, Courier New, monospace">
+                  FiraCode Nerd Font
+                </option>
+                <option value="SF Mono, Menlo, Monaco, Courier New, monospace">
+                  SF Mono
+                </option>
+                <option value="Menlo, Monaco, Courier New, monospace">
+                  Menlo
+                </option>
+              </select>
+              <div className="mt-2 text-[10px] text-[var(--text-tertiary)]">
+                Si no tienes Nerd Font instalada, los símbolos especiales pueden verse como cuadros.
+              </div>
+            </div>
           </div>
 
           {/* Terminal Theme Colors Preview */}
-          <div className={`mt-4 rounded-lg border p-4 ${isDark ? 'border-[var(--border-primary)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)]'}`}>
+          <div className={`mt-3 rounded-lg border p-3 ${isDark ? 'border-[var(--border-primary)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)]'}`}>
             <div className="mb-2 text-xs font-medium text-[var(--text-tertiary)]">Vista previa de colores</div>
             <div
-              className="rounded-md p-3 font-mono text-xs"
+              className="rounded-md p-2 font-mono text-xs"
               style={{
                 backgroundColor: settings.terminalTheme === 'nord-dark' ? '#2e3440' : '#eceff4',
                 color: settings.terminalTheme === 'nord-dark' ? '#eceff4' : '#2e3440',
@@ -213,13 +241,13 @@ export function SettingsModal() {
           </div>
 
           {/* Security Settings */}
-          <div className="mt-6 space-y-4">
+          <div className="mt-4 space-y-3">
             <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-secondary)]">
               <Shield className="h-4 w-4" />
               <span>Seguridad</span>
             </div>
 
-            <div className={`rounded-lg border p-4 ${isDark ? 'border-[var(--border-primary)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)]'}`}>
+            <div className={`rounded-lg border p-3 ${isDark ? 'border-[var(--border-primary)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)]'}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {settings.showPasswords ? (
@@ -229,7 +257,7 @@ export function SettingsModal() {
                   )}
                   <div>
                     <div className="text-sm font-medium text-[var(--text-primary)]">Mostrar Contraseñas</div>
-                    <div className="text-xs text-[var(--text-tertiary)]">Mostrar contraseñas en los formularios de sesión</div>
+                    <div className="text-xs text-[var(--text-tertiary)]">Mostrar contraseñas en los formularios</div>
                   </div>
                 </div>
                 <button
@@ -249,9 +277,9 @@ export function SettingsModal() {
           </div>
 
           {/* Version Info */}
-          <div className="mt-6 flex items-center justify-between border-t border-[var(--divider)] pt-4">
+          <div className="mt-4 flex items-center justify-between border-t border-[var(--divider)] pt-3">
             <span className="text-xs text-[var(--text-tertiary)]">ORI-SSHManager v1.0.0</span>
-            <span className="text-xs text-[var(--text-tertiary)]">Alex Constantin Castu ❤️</span>
+            <span className="text-xs text-[var(--text-tertiary)]">A.C.C</span>
           </div>
         </motion.div>
       </motion.div>

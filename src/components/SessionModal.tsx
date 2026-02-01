@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Server, Key, Globe, FileKey } from 'lucide-react';
+import { X, Server, Key, Globe, FileKey, Folder } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../contexts/ThemeContext';
 import type { SessionColor, AuthMethod } from '../types';
@@ -17,7 +17,7 @@ const colors: { value: SessionColor; label: string; class: string }[] = [
 ];
 
 export function SessionModal() {
-  const { sessionModal, closeSessionModal, addSession, updateSession } = useStore();
+  const { sessionModal, closeSessionModal, addSession, updateSession, groups } = useStore();
   const { isDark } = useTheme();
 
   const isEdit = sessionModal.data?.mode === 'edit';
@@ -37,6 +37,7 @@ export function SessionModal() {
     jumpUsername: existingSession?.jumpUsername || '',
     jumpPassword: existingSession?.jumpPassword || '',
     color: existingSession?.color || 'blue' as SessionColor,
+    groupId: existingSession?.groupId ?? null as string | null,
   });
 
   const [formData, setFormData] = useState(getInitialFormData);
@@ -72,6 +73,7 @@ export function SessionModal() {
         jumpUsername: showJumpHost ? formData.jumpUsername : undefined,
         jumpPassword: showJumpHost ? formData.jumpPassword : undefined,
         color: formData.color,
+        groupId: formData.groupId,
       };
 
       if (isEdit && existingSession) {
@@ -102,53 +104,50 @@ export function SessionModal() {
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className={`relative w-full max-w-2xl rounded-2xl border shadow-2xl max-h-[90vh] overflow-y-auto ${
+        className={`relative w-full max-w-3xl rounded-2xl border shadow-2xl overflow-hidden ${
           isDark
             ? 'bg-[var(--bg-elevated)] border-[var(--border-primary)]'
             : 'bg-[var(--bg-elevated)] border-[var(--border-primary)]'
         }`}
       >
         {/* Header */}
-        <div className={`flex items-center justify-between p-4 border-b sticky top-0 z-10 ${
+        <div className={`flex items-center justify-between p-3 border-b rounded-t-2xl ${
           isDark
             ? 'border-[var(--border-secondary)] bg-[var(--bg-elevated)]'
             : 'border-[var(--border-secondary)] bg-[var(--bg-elevated)]'
         }`}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[var(--accent-subtle)] flex items-center justify-center">
-              <Server className="w-5 h-5" style={{ color: 'var(--accent-primary)' }} />
+            <div className="w-9 h-9 rounded-lg bg-[var(--accent-subtle)] flex items-center justify-center">
+              <Server className="w-4.5 h-4.5" style={{ color: 'var(--accent-primary)' }} />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+              <h2 className="text-base font-semibold text-[var(--text-primary)]">
                 {isEdit ? 'Editar Sesión' : 'Nueva Sesión'}
               </h2>
-              <p className="text-sm text-[var(--text-secondary)]">
-                {isEdit ? 'Actualizar detalles de la sesión SSH' : 'Añadir una nueva sesión SSH'}
-              </p>
             </div>
           </div>
           <button
             onClick={closeSessionModal}
-            className={`p-2 rounded-lg transition-colors text-[var(--text-secondary)] ${
+            className={`p-1.5 rounded-lg transition-colors text-[var(--text-secondary)] ${
               isDark ? 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]' : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
             }`}
           >
-            <X className="w-5 h-5" />
+            <X className="w-4.5 h-4.5" />
           </button>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+        <form onSubmit={handleSubmit} className="p-3 space-y-3">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
               Nombre de la Sesión
             </label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className={`w-full px-3 py-2 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] ${
+              className={`w-full px-3 py-1.5 border rounded-lg text-sm placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] ${
                 isDark
                   ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/40'
                   : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/30'
@@ -159,9 +158,9 @@ export function SessionModal() {
           </div>
 
           {/* Host & Port */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-2">
             <div className="col-span-2">
-              <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                 Host
               </label>
               <div className="relative">
@@ -170,7 +169,7 @@ export function SessionModal() {
                   type="text"
                   value={formData.host}
                   onChange={(e) => setFormData({ ...formData, host: e.target.value })}
-                  className={`w-full pl-9 pr-3 py-2 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] ${
+                  className={`w-full pl-9 pr-3 py-1.5 border rounded-lg text-sm placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] ${
                     isDark
                       ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/40'
                       : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/30'
@@ -181,14 +180,14 @@ export function SessionModal() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                 Puerto
               </label>
               <input
                 type="number"
                 value={formData.port}
                 onChange={(e) => setFormData({ ...formData, port: parseInt(e.target.value) || 22 })}
-                className={`w-full px-3 py-2 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] ${
+                className={`w-full px-3 py-1.5 border rounded-lg text-sm placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] ${
                   isDark
                     ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/40'
                     : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/30'
@@ -201,14 +200,14 @@ export function SessionModal() {
 
           {/* Username */}
           <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
               Usuario
             </label>
             <input
               type="text"
               value={formData.username}
               onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-              className={`w-full px-3 py-2 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] ${
+              className={`w-full px-3 py-1.5 border rounded-lg text-sm placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] ${
                 isDark
                   ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/40'
                   : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/30'
@@ -220,14 +219,14 @@ export function SessionModal() {
 
           {/* Auth Method Toggle */}
           <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
               Método de Autenticación
             </label>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, authMethod: 'password' })}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors ${
                   formData.authMethod === 'password'
                     ? 'bg-[var(--accent-subtle)] border-[var(--accent-primary)]/50 text-[var(--accent-primary)]'
                     : isDark
@@ -241,7 +240,7 @@ export function SessionModal() {
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, authMethod: 'key' })}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors ${
                   formData.authMethod === 'key'
                     ? 'bg-[var(--success-bg)] border-[var(--success)]/50 text-[var(--success)]'
                     : isDark
@@ -258,7 +257,7 @@ export function SessionModal() {
           {/* Password or SSH Key fields */}
           {formData.authMethod === 'password' ? (
             <div>
-              <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                 Contraseña
               </label>
               <div className="relative">
@@ -267,7 +266,7 @@ export function SessionModal() {
                   type="password"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className={`w-full pl-9 pr-3 py-2 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] ${
+                  className={`w-full pl-9 pr-3 py-1.5 border rounded-lg text-sm placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] ${
                     isDark
                       ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/40'
                       : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/30'
@@ -279,7 +278,7 @@ export function SessionModal() {
           ) : (
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                   Ruta de la Clave Privada
                 </label>
                 <div className="relative">
@@ -288,7 +287,7 @@ export function SessionModal() {
                     type="text"
                     value={formData.privateKeyPath}
                     onChange={(e) => setFormData({ ...formData, privateKeyPath: e.target.value })}
-                    className={`w-full pl-9 pr-3 py-2 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--success)] ${
+                    className={`w-full pl-9 pr-3 py-1.5 border rounded-lg text-sm placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--success)] ${
                       isDark
                         ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--success)]/40'
                         : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--success)]/30'
@@ -302,7 +301,7 @@ export function SessionModal() {
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                   Frase de Paso (opcional)
                 </label>
                 <div className="relative">
@@ -311,7 +310,7 @@ export function SessionModal() {
                     type="password"
                     value={formData.privateKeyPassphrase}
                     onChange={(e) => setFormData({ ...formData, privateKeyPassphrase: e.target.value })}
-                    className={`w-full pl-9 pr-3 py-2 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--success)] ${
+                    className={`w-full pl-9 pr-3 py-1.5 border rounded-lg text-sm placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--success)] ${
                       isDark
                         ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--success)]/40'
                         : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--success)]/30'
@@ -323,33 +322,59 @@ export function SessionModal() {
             </div>
           )}
 
-          {/* Color */}
-          <div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
-              Color
-            </label>
-            <div className="flex gap-2">
-              {colors.map((color) => (
-                <button
-                  key={color.value}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, color: color.value })}
-                  className={`
-                    w-8 h-8 rounded-lg ${color.class} transition-transform
-                    ${formData.color === color.value
-                      ? isDark
-                        ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-110'
-                        : 'ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-elevated)] scale-110'
-                      : 'hover:scale-105'}
-                  `}
-                  title={color.label}
-                />
-              ))}
+          {/* Color & Group */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                Color
+              </label>
+              <div className="flex gap-1.5 flex-wrap">
+                {colors.map((color) => (
+                  <button
+                    key={color.value}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, color: color.value })}
+                    className={`
+                      w-6 h-6 rounded-md ${color.class} transition-transform
+                      ${formData.color === color.value
+                        ? isDark
+                          ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-110'
+                          : 'ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-elevated)] scale-110'
+                        : 'hover:scale-105'}
+                    `}
+                    title={color.label}
+                  />
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                Grupo
+              </label>
+              <div className="relative">
+                <Folder className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+                <select
+                  value={formData.groupId || ''}
+                  onChange={(e) => setFormData({ ...formData, groupId: e.target.value || null })}
+                  className={`w-full pl-9 pr-3 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] appearance-none cursor-pointer ${
+                    isDark
+                      ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/40'
+                      : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/30'
+                  }`}
+                >
+                  <option value="">Sin grupo</option>
+                  {groups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
           {/* Jump Host Toggle */}
-          <div className="border-t border-[var(--divider)] pt-4">
+          <div className="border-t border-[var(--divider)] pt-3">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -357,7 +382,7 @@ export function SessionModal() {
                 onChange={(e) => setShowJumpHost(e.target.checked)}
                 className="w-4 h-4 rounded border-[var(--border-primary)] bg-[var(--bg-tertiary)] accent-[var(--accent-primary)]"
               />
-              <span className="text-sm text-[var(--text-secondary)]">Usar Host de Salto (Bastión)</span>
+              <span className="text-xs text-[var(--text-secondary)]">Usar Host de Salto (Bastión)</span>
             </label>
           </div>
 
@@ -367,22 +392,22 @@ export function SessionModal() {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className={`space-y-3 p-3 rounded-lg border ${
+              className={`space-y-2 p-3 rounded-lg border ${
                 isDark
                   ? 'bg-[var(--bg-tertiary)] border-[var(--border-primary)]'
                   : 'bg-[var(--bg-secondary)] border-[var(--border-primary)]'
               }`}
             >
-              <div className="text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
+              <div className="text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
                 Configuración del Host de Salto
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
                   <input
                     type="text"
                     value={formData.jumpHost}
                     onChange={(e) => setFormData({ ...formData, jumpHost: e.target.value })}
-                    className={`w-full px-3 py-2 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] text-sm ${
+                    className={`w-full px-3 py-1.5 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] text-sm ${
                       isDark
                         ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/40'
                         : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/30'
@@ -395,7 +420,7 @@ export function SessionModal() {
                     type="number"
                     value={formData.jumpPort}
                     onChange={(e) => setFormData({ ...formData, jumpPort: parseInt(e.target.value) || 22 })}
-                    className={`w-full px-3 py-2 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] text-sm ${
+                    className={`w-full px-3 py-1.5 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] text-sm ${
                       isDark
                         ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/40'
                         : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/30'
@@ -406,12 +431,12 @@ export function SessionModal() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <input
                   type="text"
                   value={formData.jumpUsername}
                   onChange={(e) => setFormData({ ...formData, jumpUsername: e.target.value })}
-                  className={`w-full px-3 py-2 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] text-sm ${
+                  className={`w-full px-3 py-1.5 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] text-sm ${
                     isDark
                       ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/40'
                       : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/30'
@@ -422,7 +447,7 @@ export function SessionModal() {
                   type="password"
                   value={formData.jumpPassword}
                   onChange={(e) => setFormData({ ...formData, jumpPassword: e.target.value })}
-                  className={`w-full px-3 py-2 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] text-sm ${
+                  className={`w-full px-3 py-1.5 border rounded-lg placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:border-[var(--accent-primary)] text-sm ${
                     isDark
                       ? 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/40'
                       : 'bg-[var(--bg-input)] border-[var(--border-primary)] text-[var(--text-primary)] focus:ring-[var(--accent-primary)]/30'
@@ -434,11 +459,11 @@ export function SessionModal() {
           )}
 
           {/* Actions */}
-          <div className="flex justify-end gap-3 pt-4 border-t border-[var(--divider)]">
+          <div className="flex justify-end gap-2 pt-3 border-t border-[var(--divider)]">
             <button
               type="button"
               onClick={closeSessionModal}
-              className={`px-4 py-2 rounded-lg border transition-colors ${
+              className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
                 isDark
                   ? 'border-[var(--border-primary)] text-[var(--text-secondary)] hover:bg-white/5'
                   : 'border-[var(--border-primary)] text-[var(--text-secondary)] hover:bg-black/5'
@@ -449,7 +474,7 @@ export function SessionModal() {
             <button
               type="submit"
               disabled={isLoading}
-              className="px-4 py-2 rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-3 py-1.5 rounded-lg text-sm bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {isLoading ? (
                 <>

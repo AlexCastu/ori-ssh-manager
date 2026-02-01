@@ -193,7 +193,7 @@ function SortableSessionItem({
 
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition,
+    transition: isDragging ? undefined : (transition ?? 'transform 140ms ease'),
   };
 
   return (
@@ -921,7 +921,7 @@ export function Sidebar() {
     >
       <motion.aside
         initial={false}
-        animate={{ width: sidebarCollapsed ? 64 : 280 }}
+        animate={{ width: sidebarCollapsed ? 48 : 280 }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
         className={`h-full border-r flex flex-col ${
           isDark
@@ -953,7 +953,28 @@ export function Sidebar() {
         </div>
 
         {/* Sessions List */}
-        <div className="flex-1 overflow-y-auto p-1.5 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto p-1 scrollbar-hide">
+          {sidebarCollapsed && (
+            <div className="mb-2 flex flex-col items-center gap-1">
+              <button
+                onClick={() => openSessionModal({ mode: 'create' })}
+                className="p-1.5 rounded-lg transition-colors text-[var(--accent-primary)] hover:bg-[var(--bg-hover)]"
+                title="Nueva Sesión"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => {
+                  if (sidebarCollapsed) toggleSidebar();
+                  setIsAddingGroup(true);
+                }}
+                className="p-1.5 rounded-lg transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                title="Nuevo grupo"
+              >
+                <Folder className="w-4 h-4" />
+              </button>
+            </div>
+          )}
           {/* Search bar */}
           {!sidebarCollapsed && (
             <div className="mb-2 px-0.5">
@@ -1050,136 +1071,131 @@ export function Sidebar() {
           )}
 
           {/* Groups */}
-          <div className="space-y-0.5">
-            <SortableContext items={groupIds} strategy={verticalListSortingStrategy}>
-              {sortedGroups.map((group) => (
-                <div key={group.id}>
-                  {editingGroup === group.id && !sidebarCollapsed ? (
-                    <div className={`flex items-center gap-2 rounded-lg p-2 mb-2 border ${
-                      isDark
-                        ? 'bg-[var(--bg-tertiary)] border-[var(--border-primary)]'
-                        : 'bg-[var(--bg-elevated)] border-[var(--border-primary)]'
-                    }`}>
-                      <div className={`w-3 h-3 rounded-full ${getColor(group.color).dot}`} />
-                      <input
-                        type="text"
-                        value={editGroupName}
-                        onChange={(e) => setEditGroupName(e.target.value)}
-                        className={`flex-1 bg-transparent text-sm outline-none ${
-                          isDark ? 'text-[var(--text-primary)]' : 'text-[var(--text-primary)]'
-                        }`}
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleEditGroupSubmit(group.id);
-                          if (e.key === 'Escape') {
-                            setEditingGroup(null);
-                            setEditGroupName('');
-                          }
+          {!sidebarCollapsed && (
+            <div className="space-y-0.5">
+              <SortableContext items={groupIds} strategy={verticalListSortingStrategy}>
+                {sortedGroups.map((group) => (
+                  <div key={group.id}>
+                    {editingGroup === group.id && !sidebarCollapsed ? (
+                      <div className={`flex items-center gap-2 rounded-lg p-2 mb-2 border ${
+                        isDark
+                          ? 'bg-[var(--bg-tertiary)] border-[var(--border-primary)]'
+                          : 'bg-[var(--bg-elevated)] border-[var(--border-primary)]'
+                      }`}>
+                        <div className={`w-3 h-3 rounded-full ${getColor(group.color).dot}`} />
+                        <input
+                          type="text"
+                          value={editGroupName}
+                          onChange={(e) => setEditGroupName(e.target.value)}
+                          className={`flex-1 bg-transparent text-sm outline-none ${
+                            isDark ? 'text-[var(--text-primary)]' : 'text-[var(--text-primary)]'
+                          }`}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleEditGroupSubmit(group.id);
+                            if (e.key === 'Escape') {
+                              setEditingGroup(null);
+                              setEditGroupName('');
+                            }
+                          }}
+                          onBlur={() => handleEditGroupSubmit(group.id)}
+                        />
+                      </div>
+                    ) : (
+                      <SortableGroup
+                        group={group}
+                        sessions={filteredSessions}
+                        tabs={tabs}
+                        activeSessionId={activeSessionId}
+                        sidebarCollapsed={sidebarCollapsed}
+                        isOver={overId === `group-${group.id}` || overId === `group-drop-${group.id}`}
+                        onSelectSession={setActiveSession}
+                        onConnectSession={handleConnect}
+                        onEditSession={handleEdit}
+                        onDeleteSession={handleDelete}
+                        onToggleExpand={() => toggleGroupExpanded(group.id)}
+                        onEditGroup={() => {
+                          setEditingGroup(group.id);
+                          setEditGroupName(group.name);
                         }}
-                        onBlur={() => handleEditGroupSubmit(group.id)}
+                        onDeleteGroup={() => handleDeleteGroup(group.id)}
+                        onChangeGroupColor={(color) => updateGroup(group.id, { color })}
                       />
-                    </div>
-                  ) : (
-                    <SortableGroup
-                      group={group}
-                      sessions={filteredSessions}
-                      tabs={tabs}
-                      activeSessionId={activeSessionId}
-                      sidebarCollapsed={sidebarCollapsed}
-                      isOver={overId === `group-${group.id}` || overId === `group-drop-${group.id}`}
-                      onSelectSession={setActiveSession}
-                      onConnectSession={handleConnect}
-                      onEditSession={handleEdit}
-                      onDeleteSession={handleDelete}
-                      onToggleExpand={() => toggleGroupExpanded(group.id)}
-                      onEditGroup={() => {
-                        setEditingGroup(group.id);
-                        setEditGroupName(group.name);
-                      }}
-                      onDeleteGroup={() => handleDeleteGroup(group.id)}
-                      onChangeGroupColor={(color) => updateGroup(group.id, { color })}
-                    />
+                    )}
+                  </div>
+                ))}
+              </SortableContext>
+
+              {/* Ungrouped Sessions */}
+              {ungroupedSessions.length > 0 && (
+                <>
+                  {sortedGroups.length > 0 && !sidebarCollapsed && (
+                    <div className="px-2 py-1.5 text-[10px] font-medium text-[var(--text-tertiary)]">Sin Grupo</div>
                   )}
+                  <SortableContext items={ungroupedSessionIds} strategy={verticalListSortingStrategy}>
+                    {ungroupedSessions.map((session) => (
+                      <SortableSessionItem
+                        key={session.id}
+                        session={session}
+                        isActive={activeSessionId === session.id}
+                        hasActiveTab={tabs.some(t => t.sessionId === session.id)}
+                        sidebarCollapsed={sidebarCollapsed}
+                        onSelect={() => setActiveSession(session.id)}
+                        onConnect={() => handleConnect(session)}
+                        onEdit={() => handleEdit(session)}
+                        onDelete={() => handleDelete(session)}
+                      />
+                    ))}
+                  </SortableContext>
+                </>
+              )}
+
+              {/* Drop zone for removing from group */}
+              <UngroupedDropZone
+                isVisible={!sidebarCollapsed && sortedGroups.length > 0}
+                isDraggingGroupedSession={!!(activeId && activeSession?.groupId)}
+              />
+
+              {/* No search results */}
+              {filteredSessions.length === 0 && searchQuery && !sidebarCollapsed && (
+                <div className="text-center py-6 text-[var(--text-tertiary)]">
+                  <Search className="w-6 h-6 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm mb-2">No hay sesiones que coincidan con "{searchQuery}"</p>
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="text-[var(--accent-primary)] hover:text-[var(--accent-hover)] text-xs font-medium"
+                  >
+                    Limpiar búsqueda
+                  </button>
                 </div>
-              ))}
-            </SortableContext>
+              )}
 
-            {/* Ungrouped Sessions */}
-            {ungroupedSessions.length > 0 && (
-              <>
-                {sortedGroups.length > 0 && !sidebarCollapsed && (
-                  <div className="px-2 py-1.5 text-[10px] font-medium text-[var(--text-tertiary)]">Sin Grupo</div>
-                )}
-                <SortableContext items={ungroupedSessionIds} strategy={verticalListSortingStrategy}>
-                  {ungroupedSessions.map((session) => (
-                    <SortableSessionItem
-                      key={session.id}
-                      session={session}
-                      isActive={activeSessionId === session.id}
-                      hasActiveTab={tabs.some(t => t.sessionId === session.id)}
-                      sidebarCollapsed={sidebarCollapsed}
-                      onSelect={() => setActiveSession(session.id)}
-                      onConnect={() => handleConnect(session)}
-                      onEdit={() => handleEdit(session)}
-                      onDelete={() => handleDelete(session)}
-                    />
-                  ))}
-                </SortableContext>
-              </>
-            )}
-
-            {/* Drop zone for removing from group */}
-            <UngroupedDropZone
-              isVisible={!sidebarCollapsed && sortedGroups.length > 0}
-              isDraggingGroupedSession={!!(activeId && activeSession?.groupId)}
-            />
-
-            {/* No search results */}
-            {filteredSessions.length === 0 && searchQuery && !sidebarCollapsed && (
-              <div className="text-center py-6 text-[var(--text-tertiary)]">
-                <Search className="w-6 h-6 mx-auto mb-2 opacity-40" />
-                <p className="text-sm mb-2">No hay sesiones que coincidan con "{searchQuery}"</p>
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="text-[var(--accent-primary)] hover:text-[var(--accent-hover)] text-xs font-medium"
-                >
-                  Limpiar búsqueda
-                </button>
-              </div>
-            )}
-
-            {/* Empty state */}
-            {sessions.length === 0 && !sidebarCollapsed && (
-              <div className="text-center py-6 text-[var(--text-tertiary)]">
-                <Server className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm mb-2">Sin sesiones SSH</p>
-                <button
-                  onClick={() => openSessionModal({ mode: 'create' })}
-                  className="text-[var(--accent-primary)] hover:text-[var(--accent-hover)] text-xs font-medium"
-                >
-                  Crear tu primera sesión
-                </button>
-              </div>
-            )}
-          </div>
+              {/* Empty state */}
+              {sessions.length === 0 && !sidebarCollapsed && (
+                <div className="text-center py-6 text-[var(--text-tertiary)]">
+                  <Server className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm mb-2">Sin sesiones SSH</p>
+                  <button
+                    onClick={() => openSessionModal({ mode: 'create' })}
+                    className="text-[var(--accent-primary)] hover:text-[var(--accent-hover)] text-xs font-medium"
+                  >
+                    Crear tu primera sesión
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Footer - solo botón + cuando colapsado */}
-        {sidebarCollapsed && (
-          <div className="p-2 border-t flex items-center justify-center border-[var(--border-primary)]">
-            <button
-              onClick={() => openSessionModal({ mode: 'create' })}
-              className="p-2 rounded-lg transition-colors text-[var(--accent-primary)] hover:bg-[var(--bg-hover)]"
-              title="Nueva Sesión"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+        {sidebarCollapsed && <div className="h-0" />}
       </motion.aside>
 
       {/* Drag Overlay */}
-      <DragOverlay>
+      <DragOverlay
+        dropAnimation={null}
+        /* Keep overlay stable without extra drop animation */
+        /* dropAnimation={{ duration: 120, easing: 'ease-out', sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: '0.5' } } }) }} */
+      >
         {activeSession ? (
           <SessionDragPreview session={activeSession} />
         ) : activeGroup ? (

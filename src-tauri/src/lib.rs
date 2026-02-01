@@ -6,10 +6,12 @@ use std::sync::Arc;
 mod db;
 mod sftp;
 mod ssh;
+mod local_pty;
 
 use db::{Database, SavedCommand, Session};
 use sftp::{FileEntry, ListDirResult};
 use ssh::SshManager;
+use local_pty::LocalPtyManager;
 use tauri_plugin_log;
 
 // ==================== GLOBAL STATE ====================
@@ -17,6 +19,7 @@ use tauri_plugin_log;
 struct AppState {
     db: Database,
     ssh: SshManager,
+    local: LocalPtyManager,
 }
 
 // ==================== TAURI COMMANDS: DATABASE ====================
@@ -159,6 +162,53 @@ async fn ssh_disconnect(
     state.ssh.disconnect(&channel_id).map_err(|e| e.to_string())
 }
 
+// ==================== TAURI COMMANDS: LOCAL PTY ====================
+
+#[tauri::command]
+async fn local_pty_spawn(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    cols: u16,
+    rows: u16,
+) -> Result<String, String> {
+    state.local.spawn(&app, cols, rows)
+}
+
+#[tauri::command]
+async fn local_pty_write(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+    data: String,
+) -> Result<(), String> {
+    state.local.write(&channel_id, &data)
+}
+
+#[tauri::command]
+async fn local_pty_resize(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    state.local.resize(&channel_id, cols, rows)
+}
+
+#[tauri::command]
+async fn local_pty_kill(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+) -> Result<(), String> {
+    state.local.kill(&channel_id)
+}
+
+#[tauri::command]
+async fn local_pty_read_buffer(
+    state: tauri::State<'_, Arc<AppState>>,
+    channel_id: String,
+) -> Result<String, String> {
+    state.local.read_buffer(&channel_id)
+}
+
 // Logging commands removed (no external log control)
 
 // ==================== TAURI COMMANDS: SFTP ====================
@@ -270,8 +320,9 @@ pub fn run() {
     // Initialize database
     let db = Database::new().expect("Failed to initialize database");
     let ssh = SshManager::new();
+    let local = LocalPtyManager::new();
 
-    let state = Arc::new(AppState { db, ssh });
+    let state = Arc::new(AppState { db, ssh, local });
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -299,6 +350,12 @@ pub fn run() {
             ssh_send,
             ssh_resize,
             ssh_disconnect,
+            // Local PTY commands
+            local_pty_spawn,
+            local_pty_write,
+            local_pty_resize,
+            local_pty_kill,
+            local_pty_read_buffer,
             // SFTP commands
             sftp_list_dir,
             sftp_download,

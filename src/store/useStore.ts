@@ -20,6 +20,7 @@ const defaultSettings: AppSettings = {
   appTheme: 'dark',
   showPasswords: false,
   terminalFontSize: 'medium',
+  terminalFontFamily: 'JetBrainsMono Nerd Font, JetBrains Mono, Fira Code, SF Mono, Menlo, Monaco, Courier New, monospace',
 };
 
 export const useStore = create<AppStore>()(
@@ -268,7 +269,27 @@ export const useStore = create<AppStore>()(
     const newTab: TerminalTab = {
       id: tabId,
       sessionId,
+      kind: 'ssh',
       title: session?.name || 'New Tab',
+      isActive: true,
+      status: 'idle',
+    };
+
+    set((state) => ({
+      tabs: [...state.tabs.map((t) => ({ ...t, isActive: false })), newTab],
+      activeTabId: tabId,
+    }));
+
+    return tabId;
+  },
+
+  createLocalTab: () => {
+    const tabId = generateId();
+    const newTab: TerminalTab = {
+      id: tabId,
+      sessionId: 'local',
+      kind: 'local',
+      title: 'Local',
       isActive: true,
       status: 'idle',
     };
@@ -288,7 +309,11 @@ export const useStore = create<AppStore>()(
     // Disconnect SSH session if connected
     if (tabToClose?.channelId) {
       try {
-        await invoke('disconnect', { channelId: tabToClose.channelId });
+        if (tabToClose.kind === 'local') {
+          await invoke('local_pty_kill', { channelId: tabToClose.channelId });
+        } else {
+          await invoke('ssh_disconnect', { channelId: tabToClose.channelId });
+        }
       } catch (error) {
         console.error('Failed to disconnect:', error);
       }

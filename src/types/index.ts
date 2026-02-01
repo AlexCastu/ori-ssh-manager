@@ -50,6 +50,7 @@ export interface AppSettings {
   appTheme: AppTheme;
   showPasswords: boolean;
   terminalFontSize?: TerminalFontSize;
+  terminalFontFamily?: string;
 }
 
 export type TerminalFontSize = 'small' | 'medium' | 'large';
@@ -94,6 +95,7 @@ export interface SSHConnection {
 export interface TerminalTab {
   id: string;
   sessionId: string;
+  kind?: 'ssh' | 'local';
   channelId?: string;
   title: string;
   isActive: boolean;
@@ -156,6 +158,7 @@ export interface TerminalsSlice {
   tabs: TerminalTab[];
   activeTabId: string | null;
   createTab: (sessionId: string) => string;
+  createLocalTab: () => string;
   closeTab: (tabId: string) => Promise<void>;
   setActiveTab: (tabId: string) => void;
   updateTabStatus: (tabId: string, status: TerminalTab['status'], channelId?: string) => void;

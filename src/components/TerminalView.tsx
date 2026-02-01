@@ -4,6 +4,7 @@ import { FileBrowser } from './FileBrowser';
 import { useStore } from '../store/useStore';
 import { useTerminal } from '../hooks/useTerminal';
 import { sshService } from '../hooks/sshService';
+import { localTerminalService } from '../hooks/localTerminalService';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface TerminalViewProps {
@@ -32,6 +33,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   const writeRef = useRef<((data: string) => void) | null>(null);
 
   const tab = tabs.find((t) => t.id === tabId);
+  const isLocal = tab?.kind === 'local';
   const session = sessions.find((s) => s.id === tab?.sessionId);
 
   const terminalBackground = settings?.terminalTheme === 'nord-light' ? '#eceff4' : '#2e3440';
@@ -44,58 +46,62 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
   const handleData = useCallback(
     (data: string) => {
-      if (tab?.channelId) {
-        // Track what user types to detect exit commands
-        if (data === '\r' || data === '\n') {
-          // User pressed Enter - check if they typed an exit command
-          const cmd = inputBufferRef.current.trim().toLowerCase();
-          if (EXIT_COMMANDS.includes(cmd)) {
-            // Mark this as intentional exit so we don't auto-reconnect
-            // Pass channelId to prevent race condition with pty_closed event
-            sshService.markIntentionalExit(tabId, tab.channelId);
-            // Show message in terminal using ref
-            setTimeout(() => {
-              if (writeRef.current) {
-                writeRef.current('\r\n\x1b[33m[Sesión terminada por el usuario]\x1b[0m\r\n');
-              }
-            }, 100);
-          }
-          inputBufferRef.current = '';
-        } else if (data === '\x7f' || data === '\b') {
-          // Backspace
-          inputBufferRef.current = inputBufferRef.current.slice(0, -1);
-        } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
-          // Regular printable character
-          inputBufferRef.current += data;
-        } else if (data === '\x03') {
-          // Ctrl+C - clear buffer
-          inputBufferRef.current = '';
-        } else if (data === '\x04') {
-          // Ctrl+D - EOF, also an exit signal
-          // Pass channelId to prevent race condition with pty_closed event
+      if (!tab?.channelId) return;
+
+      if (isLocal) {
+        localTerminalService.send(tab.channelId, data);
+        return;
+      }
+
+      // Track what user types to detect exit commands (SSH only)
+      if (data === '\r' || data === '\n') {
+        const cmd = inputBufferRef.current.trim().toLowerCase();
+        if (EXIT_COMMANDS.includes(cmd)) {
           sshService.markIntentionalExit(tabId, tab.channelId);
           setTimeout(() => {
             if (writeRef.current) {
-              writeRef.current('\r\n\x1b[33m[Sesión terminada - EOF]\x1b[0m\r\n');
+              writeRef.current('\r\n\x1b[33m[Sesión terminada por el usuario]\x1b[0m\r\n');
             }
           }, 100);
         }
-
-        sshService.send(tab.channelId, data);
+        inputBufferRef.current = '';
+      } else if (data === '\x7f' || data === '\b') {
+        inputBufferRef.current = inputBufferRef.current.slice(0, -1);
+      } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
+        inputBufferRef.current += data;
+      } else if (data === '\x03') {
+        inputBufferRef.current = '';
+      } else if (data === '\x04') {
+        sshService.markIntentionalExit(tabId, tab.channelId);
+        setTimeout(() => {
+          if (writeRef.current) {
+            writeRef.current('\r\n\x1b[33m[Sesión terminada - EOF]\x1b[0m\r\n');
+          }
+        }, 100);
       }
+
+      sshService.send(tab.channelId, data);
     },
-    [tab?.channelId, tabId]
+    [tab?.channelId, tabId, isLocal]
   );
 
   const handleResize = useCallback(
     (cols: number, rows: number) => {
       if (!tab?.channelId) return;
       if (tab.status !== 'connected') return;
+
+      if (isLocal) {
+        localTerminalService.resize(tab.channelId, cols, rows).catch((err) => {
+          console.error('Local resize failed', { tabId, channelId: tab.channelId, cols, rows, err });
+        });
+        return;
+      }
+
       sshService.resize(tab.channelId, cols, rows).catch((err) => {
         console.error('Resize failed', { tabId, channelId: tab.channelId, cols, rows, err });
       });
     },
-    [tab?.channelId, tab?.status, tabId]
+    [tab?.channelId, tab?.status, tabId, isLocal]
   );
 
   const { initTerminal, write, writeln, focus, fit, getSize, getBufferText, getLastBlock, scrollToBottom, setFontSize, setTheme } = useTerminal({
@@ -103,6 +109,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     onResize: handleResize,
     fontSize: Math.round(14 * terminalZoom),
     terminalTheme: settings?.terminalTheme || 'nord-dark',
+    fontFamily: settings?.terminalFontFamily,
   });
 
   // Keep writeRef updated
@@ -124,7 +131,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   const initializedTabRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current || !session || !tab) return;
+    if (!containerRef.current || !tab || (!session && !isLocal)) return;
 
     // Only initialize terminal once per tab
     const isFirstInit = initializedTabRef.current !== tabId;
@@ -136,8 +143,9 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
     const previousBuffer = getTabBuffer(tabId);
     if (previousBuffer) {
-      bufferRef.current = previousBuffer;
-      write(previousBuffer);
+      const restored = isLocal ? previousBuffer : (previousBuffer.endsWith('\n') ? previousBuffer : `${previousBuffer}\r\n`);
+      bufferRef.current = restored;
+      write(restored);
       scrollToBottom();
     } else {
       bufferRef.current = '';
@@ -150,18 +158,40 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
     const attachToChannel = async (channelId: string) => {
       currentChannelRef.current = channelId;
-      await sshService.startReading(channelId, onDataCallback);
+      if (isLocal) {
+        if (tab.status !== 'connected') {
+          updateTabStatus(tabId, 'connected', channelId);
+        }
+        const buffered = await localTerminalService.readBuffer(channelId);
+        if (buffered) {
+          write(buffered);
+          bufferRef.current = trimBuffer(bufferRef.current + buffered, MAX_BUFFER_SIZE);
+        }
+        await localTerminalService.startReading(channelId, onDataCallback);
+        // Keep view stable without injecting input
+        setTimeout(() => {
+          scrollToBottom();
+          focus();
+        }, 0);
+      } else {
+        await sshService.startReading(channelId, onDataCallback);
+      }
 
       setTimeout(() => {
         fit();
         const size = getSize();
-        sshService.resize(channelId, size.cols, size.rows).catch((err) => {
-          console.error('Resize after attach failed', { tabId, channelId, err });
-        });
+        if (isLocal) {
+          localTerminalService.resize(channelId, size.cols, size.rows).catch((err) => {
+            console.error('Local resize after attach failed', { tabId, channelId, err });
+          });
+        } else {
+          sshService.resize(channelId, size.cols, size.rows).catch((err) => {
+            console.error('Resize after attach failed', { tabId, channelId, err });
+          });
+        }
         focus();
 
-        // Enable auto-reconnect
-        if (session) {
+        if (!isLocal && session) {
           sshService.enableAutoReconnect(tabId, session, size.cols, size.rows, onDataCallback);
         }
       }, 200);
@@ -179,11 +209,23 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       }
 
       // Only connect automatically on FIRST initialization
-      // Don't reconnect if channelId became null (user disconnected)
-      if (!isFirstInit) {
-        console.log('TerminalView: Skipping auto-connect, not first init');
+      if (!isFirstInit) return;
+
+      if (isLocal) {
+        const { cols, rows } = getSize();
+        const channelId = await localTerminalService.spawn(cols, rows);
+        if (channelId) {
+          updateTabStatus(tabId, 'connected', channelId);
+          hasConnectedRef.current = true;
+          await attachToChannel(channelId);
+        } else {
+          writeln(`\x1b[31mNo se pudo iniciar la consola local.\x1b[0m`);
+          updateTabStatus(tabId, 'error');
+        }
         return;
       }
+
+      if (!session) return;
 
       const { cols, rows } = getSize();
 
@@ -213,24 +255,24 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     setTimeout(() => focus(), 50);
 
     return () => {
-      const channelToClean = currentChannelRef.current || tab.channelId;
+      const channelToClean = currentChannelRef.current || tab?.channelId;
       if (channelToClean) {
-        sshService.stopReading(channelToClean);
+        if (isLocal) {
+          localTerminalService.stopReading(channelToClean);
+        } else {
+          sshService.stopReading(channelToClean);
+        }
       }
       // Disable auto-reconnect when unmounting
-      sshService.disableAutoReconnect(tabId);
+      if (!isLocal) {
+        sshService.disableAutoReconnect(tabId);
+      }
       const persisted = bufferRef.current || getBufferText();
       setTabBuffer(tabId, persisted || '');
 
       cleanup?.();
     };
-  }, [tabId, tab?.channelId, session?.id, initTerminal, fit, getSize, write, focus, writeln, getTabBuffer, setTabBuffer, getBufferText, scrollToBottom, addToast]);
-
-  useEffect(() => {
-    const handleWindowResize = () => fit();
-    window.addEventListener('resize', handleWindowResize);
-    return () => window.removeEventListener('resize', handleWindowResize);
-  }, [fit]);
+  }, [tabId, session?.id, isLocal, initTerminal, fit, getSize, write, focus, writeln, getTabBuffer, setTabBuffer, getBufferText, scrollToBottom, addToast, updateTabStatus]);
 
   // Auto-close FileBrowser when disconnected
   useEffect(() => {
@@ -240,7 +282,29 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   }, [tab?.status, showFileBrowser]);
 
   const handleReconnect = async () => {
-    if (!session || !tab) return;
+    if (!tab) return;
+
+    if (isLocal) {
+      if (tab.channelId) {
+        await localTerminalService.kill(tab.channelId);
+      }
+      updateTabStatus(tabId, 'connecting');
+      const { cols, rows } = getSize();
+      const channelId = await localTerminalService.spawn(cols, rows);
+      if (channelId) {
+        updateTabStatus(tabId, 'connected', channelId);
+        await localTerminalService.startReading(channelId, (data) => {
+          write(data);
+          bufferRef.current = trimBuffer(bufferRef.current + data, MAX_BUFFER_SIZE);
+        });
+        setTimeout(() => fit(), 100);
+      } else {
+        updateTabStatus(tabId, 'error');
+      }
+      return;
+    }
+
+    if (!session) return;
 
     if (tab.channelId) {
       await sshService.disconnect(tabId, tab.channelId);
@@ -263,6 +327,13 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   const handleStop = async () => {
     if (!tab?.channelId) return;
 
+    if (isLocal) {
+      await localTerminalService.kill(tab.channelId);
+      writeln(`\r\n\x1b[33m━━━ Consola local cerrada ━━━\x1b[0m\r\n`);
+      updateTabStatus(tabId, 'disconnected');
+      return;
+    }
+
     // Mark as intentional BEFORE disconnecting to prevent auto-reconnect
     sshService.markIntentionalExit(tabId, tab.channelId);
     await sshService.disconnect(tabId, tab.channelId);
@@ -271,9 +342,12 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
   const handleClose = async () => {
     if (tab?.channelId) {
-      // Mark as intentional BEFORE disconnecting to prevent auto-reconnect
-      sshService.markIntentionalExit(tabId, tab.channelId);
-      await sshService.disconnect(tabId, tab.channelId);
+      if (isLocal) {
+        await localTerminalService.kill(tab.channelId);
+      } else {
+        sshService.markIntentionalExit(tabId, tab.channelId);
+        await sshService.disconnect(tabId, tab.channelId);
+      }
     }
     closeTab(tabId);
   };
@@ -342,7 +416,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     }
   };
 
-  if (!tab || !session) return null;
+  if (!tab || (!session && !isLocal)) return null;
 
   const statusConfig = {
     idle: { color: 'text-[var(--text-tertiary)]', label: 'Inactivo' },
@@ -375,11 +449,13 @@ export function TerminalView({ tabId }: TerminalViewProps) {
             className="text-sm font-semibold text-[var(--text-primary)]"
             title={tab.title}
           >
-            {tab.title}
+            {isLocal ? 'Consola local' : tab.title}
           </span>
-          <span className="text-xs font-medium text-[var(--text-secondary)]">
-            {session.username}@{session.host}:{session.port}
-          </span>
+          {!isLocal && session && (
+            <span className="text-xs font-medium text-[var(--text-secondary)]">
+              {session.username}@{session.host}:{session.port}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           {/* Zoom Controls */}
@@ -402,7 +478,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
           </div>
-          {isConnected && (
+          {isConnected && !isLocal && (
             <>
               <button
                 onClick={() => setShowFileBrowser(!showFileBrowser)}

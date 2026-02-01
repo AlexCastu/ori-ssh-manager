@@ -59,6 +59,7 @@ interface UseTerminalOptions {
   onResize?: (cols: number, rows: number) => void;
   fontSize?: number;
   terminalTheme?: 'nord-dark' | 'nord-light';
+  fontFamily?: string;
 }
 
 export function useTerminal(options: UseTerminalOptions = {}) {
@@ -83,9 +84,9 @@ export function useTerminal(options: UseTerminalOptions = {}) {
       cursorBlink: true,
       cursorStyle: 'bar',
       cursorWidth: 2,
-      fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", Menlo, Monaco, "Courier New", monospace',
+      fontFamily: options.fontFamily || '"JetBrainsMono Nerd Font", "JetBrains Mono Nerd Font", "MesloLGS NF", "FiraCode Nerd Font", "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Monaco, "Courier New", monospace',
       fontSize: options.fontSize ?? 14,
-      lineHeight: 1.08,
+      lineHeight: 1.12,
       theme,
       allowTransparency: false,
       scrollback: 10000,

@@ -1,10 +1,10 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { Terminal, X, Settings, Command } from 'lucide-react';
+import { Terminal, X, Settings, Command, Monitor } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../contexts/ThemeContext';
 
 export function TabBar() {
-  const { tabs, activeTabId, sessions, setActiveTab, closeTab, openSettingsModal, toggleCommandPanel, commandPanelCollapsed } = useStore();
+  const { tabs, activeTabId, sessions, setActiveTab, closeTab, openSettingsModal, toggleCommandPanel, commandPanelCollapsed, createLocalTab } = useStore();
   const { isDark } = useTheme();
 
   const getSessionForTab = (sessionId: string) => {
@@ -34,6 +34,7 @@ export function TabBar() {
           {tabs.map((tab) => {
             const session = getSessionForTab(tab.sessionId);
             const isActive = tab.id === activeTabId;
+            const tabLabel = tab.kind === 'local' ? 'Local' : (session?.name || 'Desconocido');
 
             return (
               <motion.div
@@ -59,7 +60,7 @@ export function TabBar() {
                 <div className={`w-2 h-2 rounded-full ${statusDot(tab.status)}`} />
                 <Terminal className="w-3.5 h-3.5 flex-shrink-0" />
                 <span className="truncate flex-1 text-left">
-                  {session?.name || 'Desconocido'}
+                  {tabLabel}
                 </span>
                 <button
                   onClick={(e) => {
@@ -78,8 +79,15 @@ export function TabBar() {
         </AnimatePresence>
       </div>
 
-      {/* Lado derecho: Command Panel toggle y Settings */}
+      {/* Lado derecho: Local terminal, Command Panel toggle y Settings */}
       <div className="flex items-center gap-1 ml-2">
+        <button
+          onClick={() => createLocalTab()}
+          className="p-1.5 rounded transition-colors hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+          title="Nueva consola local"
+        >
+          <Monitor className="w-4 h-4" />
+        </button>
         <button
           onClick={toggleCommandPanel}
           className={`p-1.5 rounded transition-colors ${
