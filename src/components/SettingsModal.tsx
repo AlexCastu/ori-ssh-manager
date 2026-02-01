@@ -40,27 +40,6 @@ const appThemes: { id: AppTheme; name: string; icon: typeof Moon; description: s
   },
 ];
 
-const terminalFontSizes: { id: TerminalFontSize; name: string; description: string; preview: string }[] = [
-  {
-    id: 'small',
-    name: 'Small',
-    description: 'More lines, compact text',
-    preview: '12px',
-  },
-  {
-    id: 'medium',
-    name: 'Medium',
-    description: 'Balanced readability',
-    preview: '14px',
-  },
-  {
-    id: 'large',
-    name: 'Large',
-    description: 'Comfortable, bigger text',
-    preview: '16px',
-  },
-];
-
 export function SettingsModal() {
   const { settingsModal, closeSettingsModal, settings, updateSettings } = useStore();
   const { isDark } = useTheme();

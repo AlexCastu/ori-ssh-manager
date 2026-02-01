@@ -328,6 +328,14 @@ export const useStore = create<AppStore>()(
     }));
   },
 
+  clearTabChannel: (tabId) => {
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.id === tabId ? { ...t, channelId: undefined } : t
+      ),
+    }));
+  },
+
   setTabBuffer: (tabId, text) => {
     set((state) => ({
       tabBuffers: { ...state.tabBuffers, [tabId]: text },

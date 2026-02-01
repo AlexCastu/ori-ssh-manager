@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Server, Key, Globe, FileKey } from 'lucide-react';
 import { useStore } from '../store/useStore';
@@ -23,7 +23,7 @@ export function SessionModal() {
   const isEdit = sessionModal.data?.mode === 'edit';
   const existingSession = sessionModal.data?.session;
 
-  const [formData, setFormData] = useState({
+  const getInitialFormData = () => ({
     name: existingSession?.name || '',
     host: existingSession?.host || '',
     port: existingSession?.port || 22,
@@ -39,8 +39,17 @@ export function SessionModal() {
     color: existingSession?.color || 'blue' as SessionColor,
   });
 
+  const [formData, setFormData] = useState(getInitialFormData);
   const [showJumpHost, setShowJumpHost] = useState(!!existingSession?.jumpHost);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Update form data when session changes (for edit mode)
+  useEffect(() => {
+    if (sessionModal.isOpen) {
+      setFormData(getInitialFormData());
+      setShowJumpHost(!!existingSession?.jumpHost);
+    }
+  }, [sessionModal.isOpen, existingSession?.id]);
 
   if (!sessionModal.isOpen) return null;
 

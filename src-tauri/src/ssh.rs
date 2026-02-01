@@ -280,27 +280,44 @@ impl SshManager {
             loop {
                 thread::sleep(Duration::from_millis(10));
 
-                let result = {
+                let (result, is_eof) = {
                     let mut channels_guard = channels.lock().unwrap();
                     if let Some(ssh) = channels_guard.get_mut(&channel_id) {
+                        // Check if channel is at EOF (closed by remote)
+                        let eof = ssh.channel.eof();
+
                         match ssh.channel.read(&mut buf) {
-                            Ok(n) if n > 0 => Some(buf[0..n].to_vec()),
-                            Ok(_) => None,
-                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => None,
+                            Ok(n) if n > 0 => (Some(buf[0..n].to_vec()), false),
+                            Ok(_) => (None, eof),
+                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => (None, eof),
                             Err(_) => {
                                 // Connection closed or error
-                                break;
+                                (None, true)
                             }
                         }
                     } else {
                         // Channel removed
-                        break;
+                        (None, true)
                     }
                 };
 
                 if let Some(data) = result {
                     let output = String::from_utf8_lossy(&data).to_string();
                     let _ = app.emit(&format!("ssh-output-{}", channel_id), output);
+                }
+
+                // If EOF detected, emit closed event and exit loop
+                if is_eof {
+                    log::info!("SSH channel {} closed (EOF)", channel_id);
+                    let _ = app.emit("pty_closed", channel_id.clone());
+
+                    // Remove the channel from the map
+                    let mut channels_guard = channels.lock().unwrap();
+                    if let Some(mut ssh) = channels_guard.remove(&channel_id) {
+                        ssh.channel.close().ok();
+                        ssh.channel.wait_close().ok();
+                    }
+                    break;
                 }
             }
         });

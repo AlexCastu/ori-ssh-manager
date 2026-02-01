@@ -64,8 +64,8 @@ export function CommandPanel() {
   const executeCommand = async (command: string) => {
     if (!canSendCommand || !activeTab?.channelId) return;
     // Enviar el comando con salto de línea al final
-    // El \n extra al final da espacio visual entre comandos
-    await sshService.send(activeTab.channelId, command + '\n');
+    // Añadimos un echo vacío antes para dar espacio visual entre comandos
+    await sshService.send(activeTab.channelId, '\n' + command + '\n');
   };
 
   // Collapsed state - just show expand button

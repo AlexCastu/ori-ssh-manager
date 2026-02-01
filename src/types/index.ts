@@ -159,6 +159,7 @@ export interface TerminalsSlice {
   closeTab: (tabId: string) => Promise<void>;
   setActiveTab: (tabId: string) => void;
   updateTabStatus: (tabId: string, status: TerminalTab['status'], channelId?: string) => void;
+  clearTabChannel: (tabId: string) => void;
 }
 
 export interface UISlice {

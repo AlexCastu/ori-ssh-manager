@@ -4,10 +4,6 @@ import { listen } from '@tauri-apps/api/event';
 import { useStore } from '../store/useStore';
 import type { Session, ConnectParams } from '../types';
 
-interface PtyOutputPayload {
-  channelId: string;
-  data: string;
-}
 
 interface ReconnectConfig {
   tabId: string;
@@ -67,10 +63,11 @@ function classifyError(error: string): { title: string; message: string } {
 class SSHService {
   private static instance: SSHService;
   private callbacks = new Map<string, (data: string) => void>();
+  private channelListeners = new Map<string, () => void>(); // Per-channel event listeners
   private reconnectConfigs = new Map<string, ReconnectConfig>();
   private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private intentionalDisconnects = new Set<string>(); // Track intentional disconnections by channelId
   private initialized = false;
-  private outputUnlisten: (() => void) | null = null;
   private closedUnlisten: (() => void) | null = null;
 
   private constructor() {}
@@ -88,37 +85,50 @@ class SSHService {
 
     console.log('SSHService: Initializing global listeners');
 
-    // Listen for PTY output
-    this.outputUnlisten = await listen<PtyOutputPayload>('pty_output', (event) => {
-      const { channelId, data } = event.payload;
-      const callback = this.callbacks.get(channelId);
-      if (callback) {
-        callback(data);
-      }
-    });
-
     // Listen for PTY closed events - trigger auto-reconnect if configured
     this.closedUnlisten = await listen<string>('pty_closed', (event) => {
       const channelId = event.payload;
-      const { tabs, updateTabStatus, addToast } = useStore.getState();
+      console.log('SSHService: Received pty_closed event for channel', channelId);
+
+      const { tabs, updateTabStatus, addToast, clearTabChannel } = useStore.getState();
       const tab = tabs.find(t => t.channelId === channelId);
 
+      // Check if this was an intentional disconnect
+      const wasIntentional = this.intentionalDisconnects.has(channelId);
+      if (wasIntentional) {
+        console.log('SSHService: Intentional disconnect detected, cleaning up without auto-reconnect');
+        this.intentionalDisconnects.delete(channelId);
+      }
+
       if (tab) {
+        // ALWAYS clear the channelId and update status when pty closes
+        clearTabChannel(tab.id);
         updateTabStatus(tab.id, 'disconnected');
 
-        // Check if auto-reconnect is configured for this tab
-        const config = this.reconnectConfigs.get(tab.id);
-        if (config) {
-          addToast({
-            type: 'warning',
-            title: 'Connection Lost',
-            message: 'Attempting to reconnect...',
-            duration: 3000,
-          });
-          this.scheduleReconnect(tab.id, 1);
+        // Only try auto-reconnect if NOT intentional
+        if (!wasIntentional) {
+          const config = this.reconnectConfigs.get(tab.id);
+          if (config) {
+            addToast({
+              type: 'warning',
+              title: 'Conexión perdida',
+              message: 'Intentando reconectar...',
+              duration: 3000,
+            });
+            this.scheduleReconnect(tab.id, 1);
+          } else {
+            // Show disconnected message only if not auto-reconnecting
+            addToast({
+              type: 'info',
+              title: 'Desconectado',
+              message: `Sesión ${tab.title} cerrada`,
+              duration: 3000,
+            });
+          }
         }
       }
-      this.callbacks.delete(channelId);
+      // Clean up channel listener
+      this.stopReading(channelId);
     });
   }
 
@@ -134,6 +144,16 @@ class SSHService {
     if (timer) {
       clearTimeout(timer);
       this.reconnectTimers.delete(tabId);
+    }
+  }
+
+  // Mark that the user intentionally exited (via exit, logout, close button, etc.)
+  // This prevents auto-reconnect from triggering
+  markIntentionalExit(tabId: string, channelId?: string) {
+    console.log(`SSHService: Marking intentional exit for tab ${tabId}, channel ${channelId}`);
+    this.disableAutoReconnect(tabId);
+    if (channelId) {
+      this.intentionalDisconnects.add(channelId);
     }
   }
 
@@ -243,12 +263,41 @@ class SSHService {
     }
   }
 
-  startReading(channelId: string, onData: (data: string) => void) {
+  async startReading(channelId: string, onData: (data: string) => void) {
+    // Store callback
     this.callbacks.set(channelId, onData);
+
+    // Clean up any existing listener for this channel
+    const existingListener = this.channelListeners.get(channelId);
+    if (existingListener) {
+      existingListener();
+    }
+
+    // Listen for this specific channel's output events
+    // Backend emits: app.emit(&format!("ssh-output-{}", channel_id), output)
+    const eventName = `ssh-output-${channelId}`;
+    console.log(`SSHService: Subscribing to ${eventName}`);
+
+    const unlisten = await listen<string>(eventName, (event) => {
+      const callback = this.callbacks.get(channelId);
+      if (callback) {
+        callback(event.payload);
+      }
+    });
+
+    this.channelListeners.set(channelId, unlisten);
   }
 
   stopReading(channelId: string) {
+    // Remove callback
     this.callbacks.delete(channelId);
+
+    // Unsubscribe from channel events
+    const unlisten = this.channelListeners.get(channelId);
+    if (unlisten) {
+      unlisten();
+      this.channelListeners.delete(channelId);
+    }
   }
 
   async resize(channelId: string, cols: number, rows: number) {
@@ -260,27 +309,40 @@ class SSHService {
   }
 
   async disconnect(tabId: string, channelId: string) {
-    const { updateTabStatus } = useStore.getState();
+    const { updateTabStatus, clearTabChannel } = useStore.getState();
 
-    // Disable auto-reconnect when manually disconnecting
+    console.log(`SSHService: Disconnecting tab ${tabId}, channel ${channelId}`);
+
+    // FIRST: Mark as intentional to prevent race conditions with pty_closed event
+    this.intentionalDisconnects.add(channelId);
     this.disableAutoReconnect(tabId);
 
+    // THEN: Clean up listeners and callbacks
+    this.stopReading(channelId);
+
+    // Update UI state immediately (don't wait for backend)
+    clearTabChannel(tabId);
+    updateTabStatus(tabId, 'disconnected');
+
+    // FINALLY: Call backend to close the connection
     try {
       await invoke('ssh_disconnect', { channelId });
-      this.callbacks.delete(channelId);
-      updateTabStatus(tabId, 'disconnected');
+      console.log(`SSHService: Successfully disconnected channel ${channelId}`);
     } catch (error) {
       console.error('Failed to disconnect:', error);
     }
   }
 
   cleanup() {
-    this.outputUnlisten?.();
     this.closedUnlisten?.();
+    // Clean up all channel listeners
+    this.channelListeners.forEach(unlisten => unlisten());
+    this.channelListeners.clear();
     this.callbacks.clear();
     this.reconnectConfigs.clear();
     this.reconnectTimers.forEach(timer => clearTimeout(timer));
     this.reconnectTimers.clear();
+    this.intentionalDisconnects.clear();
     this.initialized = false;
   }
 }

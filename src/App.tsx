@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Terminal } from 'lucide-react';
+import { Terminal, Circle } from 'lucide-react';
 import { useStore } from './store/useStore';
 import { useTheme } from './contexts/ThemeContext';
 import { sshService } from './hooks/sshService';
@@ -41,9 +41,11 @@ function App() {
   }
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
+  const connectedCount = tabs.filter((t) => t.status === 'connected').length;
 
   return (
-    <div className={`h-screen flex gradient-mesh overflow-hidden ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+    <div className={`h-screen flex flex-col gradient-mesh overflow-hidden ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+      {/* Main content area */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <Sidebar />
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
@@ -74,15 +76,45 @@ function App() {
             </div>
             <CommandPanel />
           </div>
-          {/* Footer */}
-          <div className={`px-3 py-1.5 border-t text-xs flex items-center justify-between ${
-            isDark ? 'bg-[var(--bg-secondary)] border-[var(--border-primary)] text-[var(--text-tertiary)]' : 'bg-[var(--bg-secondary)] border-[var(--border-primary)] text-[var(--text-tertiary)]'
-          }`}>
-            <span>ORI-SSHManager v1.0</span>
-            <span>{tabs.length} {tabs.length === 1 ? 'sesión' : 'sesiones'} activa{tabs.length !== 1 ? 's' : ''}</span>
-          </div>
         </div>
       </div>
+
+      {/* Footer global - abarca todo el ancho */}
+      <div className="px-3 py-1 border-t text-xs flex items-center gap-4 bg-[var(--bg-secondary)] border-[var(--border-primary)] shrink-0">
+        <Circle
+          className={`w-2 h-2 shrink-0 ${
+            activeTab?.status === 'connected' ? 'text-[var(--success)]' :
+            activeTab?.status === 'connecting' ? 'text-[var(--warning)] animate-pulse' :
+            activeTab?.status === 'error' ? 'text-[var(--error)]' :
+            'text-[var(--text-tertiary)]'
+          }`}
+          fill="currentColor"
+        />
+        <span className="text-[var(--text-secondary)]">
+          {activeTab?.status === 'connected' ? 'Conectado' :
+           activeTab?.status === 'connecting' ? 'Conectando...' :
+           activeTab?.status === 'error' ? 'Error' :
+           activeTab ? 'Desconectado' : 'Sin sesión'}
+        </span>
+        {activeTab?.channelId && (
+          <span
+            className="font-mono text-[10px] text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 px-1 rounded"
+            title={`Channel ID: ${activeTab.channelId}`}
+          >
+            #{activeTab.channelId.slice(0, 8)}
+          </span>
+        )}
+        {activeTab && (
+          <>
+            <span className="text-[var(--text-quaternary)]">•</span>
+            <span className="text-[var(--text-primary)]">{activeTab.title}</span>
+          </>
+        )}
+        <div className="flex-1" />
+        <span className="text-[var(--text-tertiary)]">{connectedCount}/{tabs.length}</span>
+        <span className="text-[var(--text-quaternary)]">v1.0</span>
+      </div>
+
       <SessionModal />
       <CommandModal />
       <SettingsModal />

@@ -4,11 +4,13 @@ import {
   DndContext,
   DragOverlay,
   closestCenter,
+  pointerWithin,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
   useDroppable,
+  MeasuringStrategy,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -30,7 +32,6 @@ import {
   FolderOpen,
   MoreVertical,
   GripVertical,
-  Settings,
   Search,
   X,
 } from 'lucide-react';
@@ -53,6 +54,106 @@ const colorConfig: Record<SessionColor, { bg: string; border: string; text: stri
 const allColors: SessionColor[] = ['blue', 'green', 'purple', 'orange', 'red', 'cyan', 'pink', 'yellow'];
 
 const getColor = (color: SessionColor) => colorConfig[color] || colorConfig.blue;
+
+// Floating Tooltip Component for collapsed sidebar
+function SessionTooltip({
+  session,
+  hasActiveTab,
+  onConnect,
+  onEdit,
+  onDelete,
+}: {
+  session: Session;
+  hasActiveTab: boolean;
+  onConnect: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const colors = getColor(session.color);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -10 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -10 }}
+      transition={{ duration: 0.15 }}
+      className="absolute left-full top-0 ml-2 z-50 min-w-[200px] max-w-[280px]"
+    >
+      <div className={`p-3 rounded-lg border shadow-xl ${colors.bg} ${colors.border} bg-[var(--bg-elevated)]`}>
+        {/* Header */}
+        <div className="flex items-center gap-2 mb-2">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${colors.bg} ${colors.border}`}>
+            <Server className={`w-4 h-4 ${colors.text}`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-sm text-[var(--text-primary)] truncate">{session.name}</div>
+            <div className="text-xs text-[var(--text-tertiary)]">
+              {session.username}@{session.host}:{session.port}
+            </div>
+          </div>
+        </div>
+
+        {/* Details */}
+        <div className="space-y-1 text-xs">
+          {session.authMethod && (
+            <div className="flex items-center gap-2">
+              <span className="text-[var(--text-tertiary)]">Auth:</span>
+              <span className="text-[var(--text-secondary)]">
+                {session.authMethod === 'key' ? 'Clave SSH' : 'Contraseña'}
+              </span>
+            </div>
+          )}
+          {session.jumpHost && (
+            <div className="flex items-center gap-2">
+              <span className="text-[var(--text-tertiary)]">Jump:</span>
+              <span className="text-[var(--text-secondary)]">{session.jumpHost}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 mt-3 pt-2 border-t border-[var(--border-primary)]">
+          {/* Connect button - always visible */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onConnect();
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md transition-colors bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white text-xs font-medium"
+          >
+            <Play className="w-3 h-3" />
+            {hasActiveTab ? 'Nueva sesión' : 'Conectar'}
+          </button>
+          {/* Edit/Delete only when no active tab */}
+          {!hasActiveTab && (
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                className="p-1.5 rounded-md transition-colors hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                title="Editar"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                className="p-1.5 rounded-md transition-colors hover:bg-[var(--error-bg)] text-[var(--text-secondary)] hover:text-[var(--error)]"
+                title="Eliminar"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
 
 // Sortable Session Item Component
 function SortableSessionItem({
@@ -144,18 +245,18 @@ function SortableSessionItem({
         {/* Action buttons */}
         {isHovered && !sidebarCollapsed && (
           <div className="flex items-center">
-            {!hasActiveTab && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onConnect();
-                }}
-                className="p-1 rounded transition-colors hover:bg-[var(--accent-subtle)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]"
-                title="Conectar"
-              >
-                <Play className="w-3 h-3" />
-              </button>
-            )}
+            {/* Play button - always visible to allow multiple sessions */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onConnect();
+              }}
+              className="p-1 rounded transition-colors hover:bg-[var(--accent-subtle)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]"
+              title={hasActiveTab ? "Abrir nueva sesión" : "Conectar"}
+            >
+              <Play className="w-3 h-3" />
+            </button>
+            {/* Edit/Delete only when no active tab (protect session data) */}
             {!hasActiveTab && (
               <button
                 onClick={(e) => {
@@ -190,6 +291,19 @@ function SortableSessionItem({
           via {session.jumpHost}
         </div>
       )}
+
+      {/* Floating tooltip for collapsed sidebar */}
+      <AnimatePresence>
+        {sidebarCollapsed && isHovered && !isDragging && (
+          <SessionTooltip
+            session={session}
+            hasActiveTab={hasActiveTab}
+            onConnect={onConnect}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -229,6 +343,47 @@ function GroupDragPreview({ group, sessionCount }: { group: SessionGroup; sessio
         <span className="text-xs font-medium text-[var(--text-secondary)]">{group.name}</span>
         <span className="text-[10px] text-[var(--text-tertiary)]">({sessionCount})</span>
       </div>
+    </div>
+  );
+}
+
+// Ungrouped Drop Zone Component - separate component so useDroppable registers properly
+function UngroupedDropZone({
+  isVisible,
+  isDraggingGroupedSession,
+}: {
+  isVisible: boolean;
+  isDraggingGroupedSession: boolean;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: 'ungrouped-drop',
+    data: { type: 'ungrouped' },
+  });
+
+  if (!isVisible) {
+    // Still render but hidden to keep the droppable registered
+    return <div ref={setNodeRef} style={{ height: 0, overflow: 'hidden' }} />;
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`mt-2 py-3 px-2 rounded-md border-2 border-dashed transition-colors duration-150 ${
+        isOver
+          ? 'border-[var(--accent-primary)] bg-[var(--accent-subtle)]/50 text-[var(--accent-primary)]'
+          : isDraggingGroupedSession
+            ? 'border-[var(--warning)]/60 bg-[var(--warning)]/15 text-[var(--warning)]'
+            : 'border-[var(--border-secondary)] bg-transparent text-[var(--text-tertiary)]'
+      }`}
+      style={{ minHeight: '44px' }}
+    >
+      <p className="text-xs text-center font-medium">
+        {isOver
+          ? '✓ Soltar para quitar del grupo'
+          : isDraggingGroupedSession
+            ? '↓ Arrastrar aquí para quitar del grupo'
+            : 'Sin grupo'}
+      </p>
     </div>
   );
 }
@@ -502,7 +657,6 @@ export function Sidebar() {
     sidebarCollapsed,
     toggleSidebar,
     openSessionModal,
-    openSettingsModal,
     createTab,
     addGroup,
     updateGroup,
@@ -562,11 +716,7 @@ export function Sidebar() {
     [ungroupedSessions]
   );
 
-  // Droppable for ungrouped area
-  const { setNodeRef: setUngroupedRef, isOver: isOverUngrouped } = useDroppable({
-    id: 'ungrouped',
-    data: { type: 'ungrouped' },
-  });
+  // Note: UngroupedDropZone component handles its own useDroppable
 
   // Drag handlers
   const handleDragStart = useCallback((event: DragStartEvent) => {
@@ -613,8 +763,10 @@ export function Sidebar() {
       const session = sessions.find(s => s.id === sessionId);
       if (!session) return;
 
+      const overId = over.id.toString();
+
       // Check if dropping on "ungrouped" zone first (highest priority for removing from group)
-      if (overData?.type === 'ungrouped' || over.id === 'ungrouped') {
+      if (overData?.type === 'ungrouped' || overId === 'ungrouped' || overId === 'ungrouped-drop') {
         // Move to ungrouped (remove from any group)
         if (session.groupId) {
           await updateSession(sessionId, { groupId: null }, false);
@@ -714,13 +866,58 @@ export function Sidebar() {
     ? sortedGroups.find(g => `group-${g.id}` === activeId)
     : null;
 
+  // Custom collision detection that prioritizes "ungrouped" zone
+  const customCollisionDetection = useCallback((args: Parameters<typeof closestCenter>[0]) => {
+    const { droppableRects, droppableContainers, pointerCoordinates } = args;
+
+    // If we have pointer coordinates, check if pointer is inside ungrouped zone
+    if (pointerCoordinates) {
+      const ungroupedContainer = droppableContainers.find(c => c.id === 'ungrouped-drop');
+      if (ungroupedContainer) {
+        const rect = droppableRects.get('ungrouped-drop');
+        if (rect) {
+          const isInside =
+            pointerCoordinates.x >= rect.left &&
+            pointerCoordinates.x <= rect.right &&
+            pointerCoordinates.y >= rect.top &&
+            pointerCoordinates.y <= rect.bottom;
+
+          if (isInside) {
+            return [{
+              id: 'ungrouped-drop',
+              data: { droppableContainer: ungroupedContainer },
+            }];
+          }
+        }
+      }
+    }
+
+    // Also try pointerWithin as backup
+    const pointerCollisions = pointerWithin(args);
+    const ungroupedPointer = pointerCollisions.find(c => c.id === 'ungrouped-drop');
+    if (ungroupedPointer) {
+      return [ungroupedPointer];
+    }
+
+    // Fall back to closest center for other elements
+    return closestCenter(args);
+  }, []);
+
+  // Force re-measuring during drag to detect dynamically sized elements
+  const measuringConfig = useMemo(() => ({
+    droppable: {
+      strategy: MeasuringStrategy.Always,
+    },
+  }), []);
+
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={customCollisionDetection}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
+      measuring={measuringConfig}
     >
       <motion.aside
         initial={false}
@@ -932,20 +1129,10 @@ export function Sidebar() {
             )}
 
             {/* Drop zone for removing from group */}
-            {!sidebarCollapsed && sortedGroups.length > 0 && activeId && activeSession?.groupId && (
-              <div
-                ref={setUngroupedRef}
-                className={`mt-2 py-3 rounded-md border-2 border-dashed transition-all ${
-                  isOverUngrouped
-                    ? 'border-[var(--accent-primary)] bg-[var(--accent-subtle)]/30 text-[var(--accent-primary)]'
-                    : 'border-[var(--border-primary)] text-[var(--text-tertiary)]'
-                }`}
-              >
-                <p className="text-xs text-center font-medium">
-                  {isOverUngrouped ? 'Soltar para quitar del grupo' : 'Arrastrar aquí para quitar del grupo'}
-                </p>
-              </div>
-            )}
+            <UngroupedDropZone
+              isVisible={!sidebarCollapsed && sortedGroups.length > 0}
+              isDraggingGroupedSession={!!(activeId && activeSession?.groupId)}
+            />
 
             {/* No search results */}
             {filteredSessions.length === 0 && searchQuery && !sidebarCollapsed && (
@@ -977,27 +1164,18 @@ export function Sidebar() {
           </div>
         </div>
 
-        {/* Footer - only settings */}
-        <div className={`p-2 border-t flex items-center ${
-          sidebarCollapsed ? 'justify-center' : 'justify-end'
-        } border-[var(--border-primary)]`}>
-          {sidebarCollapsed && (
+        {/* Footer - solo botón + cuando colapsado */}
+        {sidebarCollapsed && (
+          <div className="p-2 border-t flex items-center justify-center border-[var(--border-primary)]">
             <button
               onClick={() => openSessionModal({ mode: 'create' })}
-              className="p-2 rounded-lg mb-1 transition-colors text-[var(--accent-primary)] hover:bg-[var(--bg-hover)]"
+              className="p-2 rounded-lg transition-colors text-[var(--accent-primary)] hover:bg-[var(--bg-hover)]"
               title="Nueva Sesión"
             >
               <Plus className="w-4 h-4" />
             </button>
-          )}
-          <button
-            onClick={openSettingsModal}
-            className="p-2 rounded-lg transition-colors hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            title="Ajustes"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
+          </div>
+        )}
       </motion.aside>
 
       {/* Drag Overlay */}

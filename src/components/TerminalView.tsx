@@ -51,7 +51,8 @@ export function TerminalView({ tabId }: TerminalViewProps) {
           const cmd = inputBufferRef.current.trim().toLowerCase();
           if (EXIT_COMMANDS.includes(cmd)) {
             // Mark this as intentional exit so we don't auto-reconnect
-            sshService.markIntentionalExit(tabId);
+            // Pass channelId to prevent race condition with pty_closed event
+            sshService.markIntentionalExit(tabId, tab.channelId);
             // Show message in terminal using ref
             setTimeout(() => {
               if (writeRef.current) {
@@ -71,7 +72,8 @@ export function TerminalView({ tabId }: TerminalViewProps) {
           inputBufferRef.current = '';
         } else if (data === '\x04') {
           // Ctrl+D - EOF, also an exit signal
-          sshService.markIntentionalExit(tabId);
+          // Pass channelId to prevent race condition with pty_closed event
+          sshService.markIntentionalExit(tabId, tab.channelId);
           setTimeout(() => {
             if (writeRef.current) {
               writeRef.current('\r\n\x1b[33m[Sesión terminada - EOF]\x1b[0m\r\n');
@@ -118,8 +120,17 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     setTheme(settings?.terminalTheme || 'nord-dark');
   }, [settings?.terminalTheme, setTheme]);
 
+  // Track if we've already initialized for this tab to prevent re-initialization loops
+  const initializedTabRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!containerRef.current || !session || !tab) return;
+
+    // Only initialize terminal once per tab
+    const isFirstInit = initializedTabRef.current !== tabId;
+    if (isFirstInit) {
+      initializedTabRef.current = tabId;
+    }
 
     const cleanup = initTerminal(containerRef.current);
 
@@ -137,9 +148,9 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       bufferRef.current = trimBuffer(bufferRef.current + data, MAX_BUFFER_SIZE);
     };
 
-    const attachToChannel = (channelId: string) => {
+    const attachToChannel = async (channelId: string) => {
       currentChannelRef.current = channelId;
-      sshService.startReading(channelId, onDataCallback);
+      await sshService.startReading(channelId, onDataCallback);
 
       setTimeout(() => {
         fit();
@@ -160,9 +171,17 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       fit();
       await new Promise((resolve) => setTimeout(resolve, 100));
 
+      // If tab already has a channel, attach to it
       if (tab.channelId) {
-        attachToChannel(tab.channelId);
+        await attachToChannel(tab.channelId);
         hasConnectedRef.current = true;
+        return;
+      }
+
+      // Only connect automatically on FIRST initialization
+      // Don't reconnect if channelId became null (user disconnected)
+      if (!isFirstInit) {
+        console.log('TerminalView: Skipping auto-connect, not first init');
         return;
       }
 
@@ -176,7 +195,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
       if (channelId) {
         hasConnectedRef.current = true;
-        attachToChannel(channelId);
+        await attachToChannel(channelId);
       } else {
         writeln(`\x1b[31mConexión fallida. Haz clic en reconectar para reintentar.\x1b[0m`);
         hasConnectedRef.current = false;
@@ -213,6 +232,13 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     return () => window.removeEventListener('resize', handleWindowResize);
   }, [fit]);
 
+  // Auto-close FileBrowser when disconnected
+  useEffect(() => {
+    if (tab?.status !== 'connected' && showFileBrowser) {
+      setShowFileBrowser(false);
+    }
+  }, [tab?.status, showFileBrowser]);
+
   const handleReconnect = async () => {
     if (!session || !tab) return;
 
@@ -227,7 +253,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     const channelId = await sshService.connect(tabId, session, cols, rows);
     if (channelId) {
       setTimeout(() => fit(), 100);
-      sshService.startReading(channelId, (data) => {
+      await sshService.startReading(channelId, (data) => {
         write(data);
         bufferRef.current = trimBuffer(bufferRef.current + data, MAX_BUFFER_SIZE);
       });
@@ -237,12 +263,16 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   const handleStop = async () => {
     if (!tab?.channelId) return;
 
+    // Mark as intentional BEFORE disconnecting to prevent auto-reconnect
+    sshService.markIntentionalExit(tabId, tab.channelId);
     await sshService.disconnect(tabId, tab.channelId);
     writeln(`\r\n\x1b[33m━━━ Sesión desconectada ━━━\x1b[0m\r\n`);
   };
 
   const handleClose = async () => {
     if (tab?.channelId) {
+      // Mark as intentional BEFORE disconnecting to prevent auto-reconnect
+      sshService.markIntentionalExit(tabId, tab.channelId);
       await sshService.disconnect(tabId, tab.channelId);
     }
     closeTab(tabId);
@@ -356,21 +386,17 @@ export function TerminalView({ tabId }: TerminalViewProps) {
           <div className={`flex items-center gap-0.5 mr-2 border-r pr-2 ${isDark ? 'border-[var(--border-primary)]' : 'border-[var(--border-primary)]'}`}>
             <button
               onClick={() => setTerminalZoom(terminalZoom - 0.1)}
-              className={`p-1 rounded transition-colors ${
-                isDark ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
+              className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               title="Reducir zoom"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className={`text-[10px] w-7 text-center font-mono font-medium ${isDark ? 'text-[var(--text-secondary)]' : 'text-[var(--text-secondary)]'}`}>
+            <span className="text-[10px] w-7 text-center font-mono font-medium text-[var(--text-secondary)]">
               {Math.round(terminalZoom * 100)}%
             </span>
             <button
               onClick={() => setTerminalZoom(terminalZoom + 0.1)}
-              className={`p-1 rounded transition-colors ${
-                isDark ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
+              className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               title="Aumentar zoom"
             >
               <ZoomIn className="w-3.5 h-3.5" />
@@ -381,12 +407,10 @@ export function TerminalView({ tabId }: TerminalViewProps) {
               <button
                 onClick={() => setShowFileBrowser(!showFileBrowser)}
                 aria-label="Explorador de archivos"
-                className={`p-1.5 rounded-lg transition-colors ${
+                className={`p-1.5 rounded-lg ${
                   showFileBrowser
                     ? 'text-[var(--accent-primary)] bg-[var(--accent-primary)]/10'
-                    : isDark
-                      ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]'
-                      : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]'
+                    : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]'
                 }`}
                 title="Explorador de archivos (SFTP)"
               >
@@ -395,11 +419,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
               <button
                 onClick={handleStop}
                 aria-label="Desconectar"
-                className={`p-1.5 rounded-lg transition-colors ${
-                  isDark
-                    ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--warning)]'
-                    : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--warning)]'
-                }`}
+                className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--warning)]"
                 title="Desconectar"
               >
                 <StopCircle className="w-4 h-4" />
@@ -408,12 +428,8 @@ export function TerminalView({ tabId }: TerminalViewProps) {
           )}
           <button
             onClick={handleCopyOutput}
-              aria-label="Copiar todo"
-            className={`px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight ${
-              isDark
-                ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]'
-                : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]'
-            }`}
+            aria-label="Copiar todo"
+            className="px-2 py-1.5 rounded-lg flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]"
             title="Copiar todo"
           >
             <Copy className="w-4 h-4" />
@@ -421,12 +437,8 @@ export function TerminalView({ tabId }: TerminalViewProps) {
           </button>
           <button
             onClick={handleCopyLastCommand}
-              aria-label="Copiar último bloque"
-            className={`px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight ${
-              isDark
-                ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--success)]'
-                : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--success)]'
-            }`}
+            aria-label="Copiar último bloque"
+            className="px-2 py-1.5 rounded-lg flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--success)]"
             title="Copiar último comando/bloque"
           >
             <ClipboardList className="w-4 h-4" />
@@ -436,11 +448,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
             <button
               onClick={handleReconnect}
               aria-label="Reconectar"
-              className={`p-1.5 rounded-lg transition-colors ${
-                isDark
-                  ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--success)]'
-                  : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--success)]'
-              }`}
+              className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--success)]"
               title="Reconectar"
             >
               <RefreshCw className="w-4 h-4" />
@@ -449,11 +457,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
           <button
             onClick={handleClose}
             aria-label="Cerrar pestaña"
-            className={`p-1.5 rounded-lg transition-colors ${
-              isDark
-                ? 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--error)]'
-                : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--error)]'
-            }`}
+            className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--error)]"
             title="Cerrar"
           >
             <X className="w-4 h-4" />
@@ -484,8 +488,8 @@ export function TerminalView({ tabId }: TerminalViewProps) {
             }}
             onCommand={(command) => {
               // Log SFTP operations in terminal
-              if (tab.channelId && terminalRef.current) {
-                terminalRef.current.write(`\r\n\x1b[90m# ${command}\x1b[0m\r\n`);
+              if (tab.channelId && writeRef.current) {
+                writeRef.current(`\r\n\x1b[90m# ${command}\x1b[0m\r\n`);
               }
             }}
           />
