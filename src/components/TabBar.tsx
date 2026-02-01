@@ -23,7 +23,7 @@ export function TabBar() {
   };
 
   return (
-    <div className={`flex items-center justify-between px-2 py-1 border-b ${
+    <div className={`flex items-center justify-between px-2 py-1.5 border-b ${
       isDark
         ? 'bg-[var(--bg-secondary)] border-[var(--border-secondary)]'
         : 'bg-[var(--bg-secondary)] border-[var(--border-secondary)]'
@@ -45,15 +45,15 @@ export function TabBar() {
                 exit={{ opacity: 0, scale: 0.9 }}
                 onClick={() => setActiveTab(tab.id)}
                 className={`
-                  group flex items-center gap-2 px-2 py-1 rounded-lg text-sm cursor-pointer
-                  transition-colors min-w-[100px] max-w-[180px]
+                  group flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm cursor-pointer
+                  transition-colors min-w-[110px] max-w-[200px] border
                   ${isActive
                     ? isDark
-                      ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]'
-                      : 'bg-[var(--bg-hover)] text-[var(--text-primary)]'
+                      ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] border-[var(--border-primary)] shadow-sm'
+                      : 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] border-[var(--border-primary)] shadow-sm'
                     : isDark
-                      ? 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                      ? 'text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                      : 'text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
                   }
                 `}
               >
@@ -67,7 +67,7 @@ export function TabBar() {
                     e.stopPropagation();
                     closeTab(tab.id);
                   }}
-                  className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-all ${
+                  className={`p-0.5 rounded opacity-60 group-hover:opacity-100 transition-all ${
                     isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'
                   }`}
                 >

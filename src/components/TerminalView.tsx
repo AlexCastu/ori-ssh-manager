@@ -23,14 +23,26 @@ function trimBuffer(buffer: string, maxSize: number): string {
 }
 
 export function TerminalView({ tabId }: TerminalViewProps) {
-  const { tabs, sessions, closeTab, updateTabStatus, settings, addToast, getTabBuffer, setTabBuffer, terminalZoom, setTerminalZoom } = useStore();
+  const tabs = useStore((state) => state.tabs);
+  const sessions = useStore((state) => state.sessions);
+  const closeTab = useStore((state) => state.closeTab);
+  const updateTabStatus = useStore((state) => state.updateTabStatus);
+  const settings = useStore((state) => state.settings);
+  const addToast = useStore((state) => state.addToast);
+  const getTabBuffer = useStore((state) => state.getTabBuffer);
+  const setTabBuffer = useStore((state) => state.setTabBuffer);
+  const terminalZoom = useStore((state) => state.terminalZoom);
+  const setTerminalZoom = useStore((state) => state.setTerminalZoom);
   const { isDark } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const hasConnectedRef = useRef(false);
   const currentChannelRef = useRef<string | null>(null);
   const bufferRef = useRef('');
   const [showFileBrowser, setShowFileBrowser] = useState(false);
+  const [fileBrowserPath, setFileBrowserPath] = useState<string | null>(null);
   const writeRef = useRef<((data: string) => void) | null>(null);
+  const terminalCwdRef = useRef<string | null>(null);
+  const terminalHomeRef = useRef<string | null>(null);
 
   const tab = tabs.find((t) => t.id === tabId);
   const isLocal = tab?.kind === 'local';
@@ -44,6 +56,67 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   // Common exit commands across different platforms/shells
   const EXIT_COMMANDS = ['exit', 'logout', 'quit', 'bye', 'disconnect', 'close', 'q', 'halt', 'poweroff', 'shutdown'];
 
+  const normalizePath = useCallback((path: string) => {
+    const parts = path.split('/').filter(Boolean);
+    const stack: string[] = [];
+    for (const part of parts) {
+      if (part === '.') continue;
+      if (part === '..') {
+        stack.pop();
+      } else {
+        stack.push(part);
+      }
+    }
+    return `/${stack.join('/')}`;
+  }, []);
+
+  const ensureHomeDir = useCallback(() => {
+    if (terminalHomeRef.current) return;
+    terminalHomeRef.current = '/';
+  }, []);
+
+  const resolvePathToken = useCallback((token: string) => {
+    const home = terminalHomeRef.current;
+    if (token.startsWith('~/')) {
+      return home ? normalizePath(`${home}/${token.slice(2)}`) : null;
+    }
+    if (token === '~') {
+      return home ?? null;
+    }
+    if (token.startsWith('/')) {
+      return normalizePath(token);
+    }
+
+    const base = terminalCwdRef.current;
+    if (base) {
+      if (token === '..') {
+        const parentParts = base.split('/').filter(Boolean);
+        parentParts.pop();
+        return `/${parentParts.join('/')}` || '/';
+      }
+      const baseName = base.split('/').filter(Boolean).pop();
+      if (baseName && baseName === token) {
+        return base;
+      }
+      const parentParts = base.split('/').filter(Boolean);
+      if (parentParts.length > 0) {
+        parentParts.pop();
+        const parentPath = `/${parentParts.join('/')}` || '/';
+        const parentName = parentParts[parentParts.length - 1];
+        if (parentName && parentName === token) {
+          return parentPath;
+        }
+      }
+      return normalizePath(`${base}/${token}`);
+    }
+
+    if (home) {
+      return normalizePath(`${home}/${token}`);
+    }
+
+    return null;
+  }, [normalizePath]);
+
   const handleData = useCallback(
     (data: string) => {
       if (!tab?.channelId) return;
@@ -55,7 +128,8 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
       // Track what user types to detect exit commands (SSH only)
       if (data === '\r' || data === '\n') {
-        const cmd = inputBufferRef.current.trim().toLowerCase();
+        const rawCmd = inputBufferRef.current.trim();
+        const cmd = rawCmd.toLowerCase();
         if (EXIT_COMMANDS.includes(cmd)) {
           sshService.markIntentionalExit(tabId, tab.channelId);
           setTimeout(() => {
@@ -63,6 +137,18 @@ export function TerminalView({ tabId }: TerminalViewProps) {
               writeRef.current('\r\n\x1b[33m[Sesión terminada por el usuario]\x1b[0m\r\n');
             }
           }, 100);
+        }
+        if (cmd === 'cd' || cmd.startsWith('cd ') || cmd === 'cd~' || cmd.startsWith('cd~') || cmd.startsWith('pushd') || cmd.startsWith('popd')) {
+          const raw = rawCmd.replace(/^cd\s*/i, '').trim();
+          const token = raw || '~';
+          const resolved = resolvePathToken(token) || terminalCwdRef.current;
+          if (resolved) {
+            terminalCwdRef.current = resolved;
+            setFileBrowserPath(resolved);
+          }
+          setTimeout(() => {
+            syncFileBrowserPath();
+          }, 250);
         }
         inputBufferRef.current = '';
       } else if (data === '\x7f' || data === '\b') {
@@ -104,13 +190,75 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     [tab?.channelId, tab?.status, tabId, isLocal]
   );
 
-  const { initTerminal, write, writeln, focus, fit, getSize, getBufferText, getLastBlock, scrollToBottom, setFontSize, setTheme } = useTerminal({
+  const { initTerminal, write, writeln, focus, fit, getSize, getBufferText, getLastBlock, scrollToBottom, setFontSize, setTheme, terminal } = useTerminal({
     onData: handleData,
     onResize: handleResize,
     fontSize: Math.round(14 * terminalZoom),
     terminalTheme: settings?.terminalTheme || 'nord-dark',
     fontFamily: settings?.terminalFontFamily,
   });
+
+  useEffect(() => {
+    if (showFileBrowser) return;
+    const id = setTimeout(() => {
+      fit();
+      if (terminal) {
+        terminal.refresh(0, terminal.rows - 1);
+      }
+      focus();
+    }, 0);
+    return () => clearTimeout(id);
+  }, [showFileBrowser, fit, terminal, focus]);
+
+  const detectCwdFromBuffer = useCallback(() => {
+    const text = getBufferText();
+    if (!text) return null;
+    ensureHomeDir();
+
+    const lines = text.split('\n');
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      // Pattern: user@host:~/path$ (bash)
+      const colonMatch = line.match(/:(.+?)\s*[#$]$/);
+      if (colonMatch?.[1]) {
+        const resolved = resolvePathToken(colonMatch[1]);
+        if (resolved) return resolved;
+      }
+
+      // Pattern: user@host path % (zsh) or ... /path $/% (allow spaces)
+      const zshMatch = line.match(/@\S+\s+(.+?)\s*[%$#]$/);
+      if (zshMatch?.[1]) {
+        const resolved = resolvePathToken(zshMatch[1]);
+        if (resolved) return resolved;
+      }
+
+      // Fallback: last token before prompt symbol
+      const spaceMatch = line.match(/\s(.+?)\s*[%$#]$/);
+      if (spaceMatch?.[1]) {
+        const resolved = resolvePathToken(spaceMatch[1]);
+        if (resolved) return resolved;
+      }
+    }
+
+    return null;
+  }, [getBufferText, ensureHomeDir, resolvePathToken]);
+
+  const syncFileBrowserPath = useCallback(() => {
+    if (!tab?.channelId || isLocal) return;
+
+    const detected = detectCwdFromBuffer();
+    if (detected) {
+      terminalCwdRef.current = detected;
+      setFileBrowserPath(detected);
+      return;
+    }
+
+    if (terminalCwdRef.current) {
+      setFileBrowserPath(terminalCwdRef.current);
+    }
+  }, [tab?.channelId, isLocal, detectCwdFromBuffer]);
 
   // Keep writeRef updated
   useEffect(() => {
@@ -143,9 +291,8 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
     const previousBuffer = getTabBuffer(tabId);
     if (previousBuffer) {
-      const restored = isLocal ? previousBuffer : (previousBuffer.endsWith('\n') ? previousBuffer : `${previousBuffer}\r\n`);
-      bufferRef.current = restored;
-      write(restored);
+      bufferRef.current = previousBuffer;
+      write(previousBuffer);
       scrollToBottom();
     } else {
       bufferRef.current = '';
@@ -157,6 +304,14 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     };
 
     const attachToChannel = async (channelId: string) => {
+      if (currentChannelRef.current && currentChannelRef.current !== channelId) {
+        if (isLocal) {
+          localTerminalService.stopReading(currentChannelRef.current);
+        } else {
+          sshService.stopReading(currentChannelRef.current);
+        }
+      }
+
       currentChannelRef.current = channelId;
       if (isLocal) {
         if (tab.status !== 'connected') {
@@ -271,6 +426,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       setTabBuffer(tabId, persisted || '');
 
       cleanup?.();
+      currentChannelRef.current = null;
     };
   }, [tabId, session?.id, isLocal, initTerminal, fit, getSize, write, focus, writeln, getTabBuffer, setTabBuffer, getBufferText, scrollToBottom, addToast, updateTabStatus]);
 
@@ -280,6 +436,12 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       setShowFileBrowser(false);
     }
   }, [tab?.status, showFileBrowser]);
+
+  // Sync FileBrowser path on open
+  useEffect(() => {
+    if (!showFileBrowser || !tab?.channelId || isLocal || tab.status !== 'connected') return;
+    syncFileBrowserPath();
+  }, [showFileBrowser, tab?.channelId, tab?.status, isLocal, syncFileBrowserPath]);
 
   const handleReconnect = async () => {
     if (!tab) return;
@@ -429,7 +591,10 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   const isConnected = tab.status === 'connected';
 
   return (
-    <div className="h-full flex flex-col overflow-hidden" style={{ backgroundColor: terminalBackground }}>
+    <div
+      className="terminal-container h-full flex flex-col overflow-hidden"
+      style={{ backgroundColor: terminalBackground, ['--terminal-view-bg' as any]: terminalBackground }}
+    >
       {/* Tab Header */}
       <div className={`flex items-center justify-between px-4 py-2 border-b shrink-0 ${
         isDark
@@ -488,7 +653,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
                     ? 'text-[var(--accent-primary)] bg-[var(--accent-primary)]/10'
                     : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]'
                 }`}
-                title="Explorador de archivos (SFTP)"
+                title={showFileBrowser ? 'Volver a consola' : 'Explorador de archivos (SFTP)'}
               >
                 <FolderOpen className="w-4 h-4" />
               </button>
@@ -541,36 +706,43 @@ export function TerminalView({ tabId }: TerminalViewProps) {
         </div>
       </div>
 
-      {/* Main content area with optional FileBrowser */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Terminal Container */}
-        <div className="flex-1 min-h-0 min-w-0 p-2.5 box-border">
-          <div
-            ref={containerRef}
-            className="h-full w-full"
-            style={{ overflow: 'hidden' }}
-            onClick={() => focus()}
-          />
+      {/* Main content area: keep terminal mounted, toggle visibility */}
+      <div className="flex-1 min-h-0 overflow-hidden relative">
+        <div
+          className={`absolute inset-0 ${showFileBrowser ? 'pointer-events-none opacity-0' : 'pointer-events-auto opacity-100'}`}
+        >
+          <div className="h-full w-full p-2.5 box-border">
+            <div
+              ref={containerRef}
+              className="h-full w-full"
+              style={{ overflow: 'hidden' }}
+              onClick={() => focus()}
+            />
+          </div>
         </div>
 
-        {/* File Browser Panel */}
         {showFileBrowser && isConnected && (
-          <FileBrowser
-            channelId={tab.channelId ?? null}
-            onClose={() => setShowFileBrowser(false)}
-            onNavigate={(path) => {
-              // Optionally cd in terminal too
-              if (tab.channelId) {
-                sshService.send(tab.channelId, `cd "${path}"\n`);
-              }
-            }}
-            onCommand={(command) => {
-              // Log SFTP operations in terminal
-              if (tab.channelId && writeRef.current) {
-                writeRef.current(`\r\n\x1b[90m# ${command}\x1b[0m\r\n`);
-              }
-            }}
-          />
+          <div className="absolute inset-0">
+            <FileBrowser
+              channelId={tab.channelId ?? null}
+              syncPath={fileBrowserPath}
+              onClose={() => setShowFileBrowser(false)}
+              onNavigate={(path) => {
+                // Optionally cd in terminal too
+                if (tab.channelId) {
+                  sshService.send(tab.channelId, `cd "${path}"\n`);
+                }
+                setFileBrowserPath(path);
+                terminalCwdRef.current = path;
+              }}
+              onCommand={(command) => {
+                // Log SFTP operations in terminal
+                if (tab.channelId && writeRef.current) {
+                  writeRef.current(`\r\n\x1b[90m# ${command}\x1b[0m\r\n`);
+                }
+              }}
+            />
+          </div>
         )}
       </div>
     </div>

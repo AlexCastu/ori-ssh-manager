@@ -198,6 +198,18 @@
     margin: 0;
   }
 
+  .terminal-container,
+  .terminal-container .xterm,
+  .terminal-container .xterm-viewport,
+  .terminal-container .xterm-screen {
+    background-color: var(--terminal-view-bg);
+  }
+
+  .terminal-container .xterm,
+  .terminal-container .xterm * {
+    transition: none !important;
+  }
+
   /* Elegant scrollbar */
   ::-webkit-scrollbar {
     width: 6px;
@@ -225,6 +237,14 @@
   :root.dark ::selection {
     background: rgba(0, 212, 170, 0.3);
     color: white;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
   }
 }
 

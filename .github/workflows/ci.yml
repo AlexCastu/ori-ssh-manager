@@ -1,39 +1,26 @@
-name: Release
+name: CI
 
 on:
   push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag version (vX.Y.Z)'
-        required: true
-      prerelease:
-        description: 'Create as prerelease'
-        type: boolean
-        default: false
+    branches:
+      - main
+      - master
+  pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  build:
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-latest
-            platform: macos
-            arch: aarch64
             tauriArgs: '--target aarch64-apple-darwin'
           - os: macos-latest
-            platform: macos
-            arch: x86_64
             tauriArgs: '--target x86_64-apple-darwin'
           - os: windows-latest
-            platform: windows
-            arch: x86_64
             tauriArgs: ''
 
     runs-on: ${{ matrix.os }}
@@ -62,12 +49,5 @@ jobs:
 
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ inputs.tag || github.ref_name }}
-          releaseName: 'ORI-SSHManager ${{ inputs.tag || github.ref_name }}'
-          releaseBody: 'See the assets to download and install ORI-SSHManager.'
-          releaseDraft: false
-          prerelease: ${{ inputs.prerelease || false }}
           args: ${{ matrix.tauriArgs }}

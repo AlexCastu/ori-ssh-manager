@@ -28,6 +28,7 @@ import { useTheme } from '../contexts/ThemeContext';
 
 interface FileBrowserProps {
   channelId: string | null;
+  syncPath?: string | null;
   onClose: () => void;
   onNavigate?: (path: string) => void;
   onCommand?: (command: string) => void;
@@ -88,7 +89,7 @@ function _formatDate(timestamp: number | null): string {
 }
 void _formatDate; // Silence unused warning
 
-export function FileBrowser({ channelId, onClose, onNavigate, onCommand }: FileBrowserProps) {
+export function FileBrowser({ channelId, syncPath, onClose, onNavigate, onCommand }: FileBrowserProps) {
   const { addToast } = useStore();
   const { isDark } = useTheme();
   const [showNewInput, setShowNewInput] = useState<'folder' | 'file' | null>(null);
@@ -149,6 +150,13 @@ export function FileBrowser({ channelId, onClose, onNavigate, onCommand }: FileB
       initialLoadDoneRef.current = false;
     }
   }, [channelId]);
+
+  useEffect(() => {
+    if (!syncPath || !channelId) return;
+    if (syncPath !== currentPath) {
+      navigateTo(syncPath);
+    }
+  }, [syncPath, channelId, currentPath, navigateTo]);
 
   // Close context menu on click outside
   useEffect(() => {

@@ -41,7 +41,10 @@ const appThemes: { id: AppTheme; name: string; icon: typeof Moon; description: s
 ];
 
 export function SettingsModal() {
-  const { settingsModal, closeSettingsModal, settings, updateSettings } = useStore();
+  const settingsModal = useStore((state) => state.settingsModal);
+  const closeSettingsModal = useStore((state) => state.closeSettingsModal);
+  const settings = useStore((state) => state.settings);
+  const updateSettings = useStore((state) => state.updateSettings);
   const { isDark } = useTheme();
 
 

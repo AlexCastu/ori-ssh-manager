@@ -15,7 +15,10 @@ import {
 import { SettingsModal } from './components/SettingsModal';
 
 function App() {
-  const { isInitialized, initialize, tabs, activeTabId } = useStore();
+  const isInitialized = useStore((state) => state.isInitialized);
+  const initialize = useStore((state) => state.initialize);
+  const tabs = useStore((state) => state.tabs);
+  const activeTabId = useStore((state) => state.activeTabId);
   const { isDark } = useTheme();
 
   useEffect(() => {

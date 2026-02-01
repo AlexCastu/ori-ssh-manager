@@ -67,6 +67,13 @@ export function useTerminal(options: UseTerminalOptions = {}) {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onDataRef = useRef<UseTerminalOptions['onData']>(options.onData);
+  const onResizeRef = useRef<UseTerminalOptions['onResize']>(options.onResize);
+
+  useEffect(() => {
+    onDataRef.current = options.onData;
+    onResizeRef.current = options.onResize;
+  }, [options.onData, options.onResize]);
 
   // Get the appropriate theme
   const getTheme = () => {
@@ -103,7 +110,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
 
     // Handle user input
     terminal.onData((data) => {
-      options.onData?.(data);
+      onDataRef.current?.(data);
     });
 
     terminalRef.current = terminal;
@@ -117,7 +124,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
         // Use requestAnimationFrame to ensure DOM is ready
         requestAnimationFrame(() => {
           fitAddon.fit();
-          options.onResize?.(terminal.cols, terminal.rows);
+          onResizeRef.current?.(terminal.cols, terminal.rows);
         });
       }, 100);
     });
@@ -128,7 +135,7 @@ export function useTerminal(options: UseTerminalOptions = {}) {
       resizeObserver.disconnect();
       terminal.dispose();
     };
-  }, [options.onData]);
+  }, []);
 
   const write = useCallback((data: string) => {
     terminalRef.current?.write(data);

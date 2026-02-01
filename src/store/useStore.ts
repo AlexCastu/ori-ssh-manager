@@ -14,13 +14,26 @@ import type {
 // Generate unique IDs
 const generateId = () => crypto.randomUUID();
 
-// Default settings
+const readPersistedSettings = (): Partial<AppSettings> => {
+  try {
+    if (typeof localStorage === 'undefined') return {};
+    const raw = localStorage.getItem('ori-sshmanager-storage');
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as { state?: { settings?: AppSettings } };
+    return parsed?.state?.settings ?? {};
+  } catch {
+    return {};
+  }
+};
+
+// Default settings (merged with persisted to avoid initial theme flash)
 const defaultSettings: AppSettings = {
   terminalTheme: 'nord-dark',
   appTheme: 'dark',
   showPasswords: false,
   terminalFontSize: 'medium',
   terminalFontFamily: 'JetBrainsMono Nerd Font, JetBrains Mono, Fira Code, SF Mono, Menlo, Monaco, Courier New, monospace',
+  ...readPersistedSettings(),
 };
 
 export const useStore = create<AppStore>()(
