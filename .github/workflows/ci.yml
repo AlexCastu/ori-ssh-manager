@@ -44,6 +44,11 @@ jobs:
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
@@ -53,10 +58,7 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
-      - name: Build Tauri app (macOS)
-        if: matrix.os == 'macos-latest'
-        run: pnpm tauri build ${{ matrix.tauriArgs }}
-
-      - name: Build Tauri app (Windows)
-        if: matrix.os == 'windows-latest'
-        run: pnpm tauri build
+      - name: Build Tauri app
+        run: |
+          cd src-tauri
+          cargo build --release ${{ matrix.tauriArgs }}

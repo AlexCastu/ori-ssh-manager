@@ -57,6 +57,11 @@ jobs:
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
@@ -68,6 +73,6 @@ jobs:
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: "ORI-SSHManager ${{ inputs.tag || github.ref_name }}"
           releaseBody: "See the assets to download and install ORI-SSHManager."
-          releaseDraft: false
+          releaseDraft: true
           prerelease: ${{ inputs.prerelease || false }}
           args: ${{ matrix.tauriArgs }}
