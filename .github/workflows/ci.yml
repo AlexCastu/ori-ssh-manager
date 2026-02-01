@@ -17,11 +17,11 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            tauriArgs: '--target aarch64-apple-darwin'
+            tauriArgs: "--target aarch64-apple-darwin"
           - os: macos-latest
-            tauriArgs: '--target x86_64-apple-darwin'
+            tauriArgs: "--target x86_64-apple-darwin"
           - os: windows-latest
-            tauriArgs: ''
+            tauriArgs: ""
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -31,7 +31,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: 'pnpm'
+          cache: "pnpm"
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install pnpm
@@ -47,7 +47,16 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build the app
-        uses: tauri-apps/tauri-action@v0
-        with:
-          args: ${{ matrix.tauriArgs }}
+      - name: Lint code
+        run: pnpm lint
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Build Tauri app (macOS)
+        if: matrix.os == 'macos-latest'
+        run: pnpm tauri build ${{ matrix.tauriArgs }}
+
+      - name: Build Tauri app (Windows)
+        if: matrix.os == 'windows-latest'
+        run: pnpm tauri build
