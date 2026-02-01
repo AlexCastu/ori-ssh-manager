@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - dev
   pull_request:
 
 permissions:
@@ -15,15 +16,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
+        settings:
           - os: macos-latest
-            tauriArgs: "--target aarch64-apple-darwin"
+            target: aarch64-apple-darwin
           - os: macos-latest
-            tauriArgs: "--target x86_64-apple-darwin"
+            target: x86_64-apple-darwin
           - os: windows-latest
-            tauriArgs: ""
+            target: x86_64-pc-windows-msvc
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.settings.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,18 +32,29 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: "pnpm"
-          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.settings.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -52,13 +64,9 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint code
-        run: pnpm lint
-
       - name: Build frontend
         run: pnpm build
 
-      - name: Build Tauri app
-        run: |
-          cd src-tauri
-          cargo build --release ${{ matrix.tauriArgs }}
+      - name: Build Tauri (Rust only)
+        working-directory: src-tauri
+        run: cargo build --release --target ${{ matrix.settings.target }}

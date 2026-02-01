@@ -5,38 +5,27 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag version (vX.Y.Z)"
-        required: true
-      prerelease:
-        description: "Create as prerelease"
-        type: boolean
-        default: false
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     strategy:
       fail-fast: false
       matrix:
-        include:
+        settings:
           - os: macos-latest
-            platform: macos
-            arch: aarch64
-            tauriArgs: "--target aarch64-apple-darwin"
-          - os: macos-latest
-            platform: macos
-            arch: x86_64
-            tauriArgs: "--target x86_64-apple-darwin"
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - os: macos-latest  
+            target: x86_64-apple-darwin
+            bundles: app,dmg
           - os: windows-latest
-            platform: windows
-            arch: x86_64
-            tauriArgs: ""
+            target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.settings.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -44,18 +33,29 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: "pnpm"
-          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.settings.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -70,9 +70,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ inputs.tag || github.ref_name }}
-          releaseName: "ORI-SSHManager ${{ inputs.tag || github.ref_name }}"
-          releaseBody: "See the assets to download and install ORI-SSHManager."
+          tagName: ${{ github.ref_name }}
+          releaseName: "ORI-SSHManager ${{ github.ref_name }}"
+          releaseBody: "Download and install ORI-SSHManager for your platform."
           releaseDraft: true
-          prerelease: ${{ inputs.prerelease || false }}
-          args: ${{ matrix.tauriArgs }}
+          prerelease: false
+          args: --target ${{ matrix.settings.target }} --bundles ${{ matrix.settings.bundles }}
