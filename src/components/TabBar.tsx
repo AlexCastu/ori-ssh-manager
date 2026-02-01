@@ -1,10 +1,10 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { Terminal, X, Settings } from 'lucide-react';
+import { Terminal, X, Settings, Command } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../contexts/ThemeContext';
 
 export function TabBar() {
-  const { tabs, activeTabId, sessions, setActiveTab, closeTab, openSettingsModal } = useStore();
+  const { tabs, activeTabId, sessions, setActiveTab, closeTab, openSettingsModal, toggleCommandPanel, commandPanelCollapsed } = useStore();
   const { isDark } = useTheme();
 
   const getSessionForTab = (sessionId: string) => {
@@ -78,14 +78,25 @@ export function TabBar() {
         </AnimatePresence>
       </div>
 
-      {/* Lado derecho: Settings */}
-      <div className="flex items-center ml-2">
+      {/* Lado derecho: Command Panel toggle y Settings */}
+      <div className="flex items-center gap-1 ml-2">
+        <button
+          onClick={toggleCommandPanel}
+          className={`p-1.5 rounded transition-colors ${
+            commandPanelCollapsed
+              ? 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+              : 'text-[var(--accent-primary)] bg-[var(--accent-subtle)]'
+          } hover:bg-[var(--bg-hover)]`}
+          title={commandPanelCollapsed ? 'Mostrar Comandos' : 'Ocultar Comandos'}
+        >
+          <Command className="w-4 h-4" />
+        </button>
         <button
           onClick={openSettingsModal}
-          className="p-1 rounded transition-colors hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+          className="p-1.5 rounded transition-colors hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
           title="Ajustes"
         >
-          <Settings className="w-3.5 h-3.5" />
+          <Settings className="w-4 h-4" />
         </button>
       </div>
     </div>

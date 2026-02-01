@@ -436,3 +436,22 @@
     box-shadow: var(--shadow-focus);
   }
 }
+
+/* Terminal cursor styling */
+@keyframes cursorGlow {
+  0% {
+    box-shadow: 0 0 6px rgba(79, 195, 247, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 10px rgba(79, 195, 247, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 6px rgba(79, 195, 247, 0.35);
+  }
+}
+
+.xterm .xterm-cursor-layer .xterm-cursor.xterm-cursor-bar {
+  width: 2px !important;
+  animation: cursorGlow 1.2s ease-in-out infinite;
+  border-radius: 2px;
+}

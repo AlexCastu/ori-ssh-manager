@@ -6,7 +6,6 @@ import {
   Play,
   Trash2,
   ChevronDown,
-  ChevronLeft,
   Code,
   Zap,
   FolderOpen,
@@ -53,7 +52,6 @@ export function CommandPanel() {
     deleteCommand,
     openCommandModal,
     commandPanelCollapsed,
-    toggleCommandPanel,
   } = useStore();
   const { isDark } = useTheme();
   const [quickExpanded, setQuickExpanded] = useState(true);
@@ -70,25 +68,7 @@ export function CommandPanel() {
 
   // Collapsed state - just show expand button
   if (commandPanelCollapsed) {
-    return (
-      <div className={`w-10 border-l flex flex-col items-center py-2 gap-2 ${
-        isDark
-          ? 'bg-[var(--bg-secondary)] border-[var(--border-primary)]'
-          : 'bg-[var(--bg-secondary)] border-[var(--border-primary)]'
-      }`}>
-        <button
-          onClick={toggleCommandPanel}
-          className={`p-2 rounded-lg transition-colors ${
-            isDark
-              ? 'hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
-              : 'hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
-          }`}
-          title="Mostrar Comandos"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -97,27 +77,14 @@ export function CommandPanel() {
         ? 'bg-[var(--bg-secondary)] border-[var(--border-primary)]'
         : 'bg-[var(--bg-secondary)] border-[var(--border-primary)]'
     }`}>
-      {/* Header with collapse button */}
-      <div className={`p-3 border-b flex items-center justify-between ${
+      {/* Header */}
+      <div className={`p-3 border-b flex items-center gap-2 ${
         isDark ? 'border-[var(--border-primary)]' : 'border-[var(--border-primary)]'
       }`}>
-        <div className="flex items-center gap-2">
-          <Command className="w-4 h-4 text-[var(--accent-primary)]" />
-          <span className={`text-sm font-medium ${isDark ? 'text-[var(--text-primary)]' : 'text-[var(--text-primary)]'}`}>
-            Comandos
-          </span>
-        </div>
-        <button
-          onClick={toggleCommandPanel}
-          className={`p-1.5 rounded transition-colors ${
-            isDark
-              ? 'hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
-              : 'hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
-          }`}
-          title="Ocultar Comandos"
-        >
-          <ChevronLeft className="w-4 h-4 rotate-180" />
-        </button>
+        <Command className="w-4 h-4 text-[var(--accent-primary)]" />
+        <span className={`text-sm font-medium ${isDark ? 'text-[var(--text-primary)]' : 'text-[var(--text-primary)]'}`}>
+          Comandos
+        </span>
       </div>
 
       {/* Content */}

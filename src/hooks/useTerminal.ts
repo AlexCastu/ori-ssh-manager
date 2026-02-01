@@ -8,7 +8,7 @@ import '@xterm/xterm/css/xterm.css';
 const NORD_DARK_THEME = {
   background: '#2e3440',
   foreground: '#eceff4',
-  cursor: '#88c0d0',
+  cursor: '#4fc3f7',
   cursorAccent: '#2e3440',
   selectionBackground: 'rgba(136, 192, 208, 0.3)',
   black: '#3b4252',
@@ -33,7 +33,7 @@ const NORD_DARK_THEME = {
 const NORD_LIGHT_THEME = {
   background: '#eceff4',
   foreground: '#2e3440',
-  cursor: '#5e81ac',
+  cursor: '#2563eb',
   cursorAccent: '#eceff4',
   selectionBackground: 'rgba(94, 129, 172, 0.3)',
   black: '#2e3440',
@@ -81,10 +81,11 @@ export function useTerminal(options: UseTerminalOptions = {}) {
 
     const terminal = new Terminal({
       cursorBlink: true,
-      cursorStyle: 'block',
+      cursorStyle: 'bar',
+      cursorWidth: 2,
       fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", Menlo, Monaco, "Courier New", monospace',
       fontSize: options.fontSize ?? 14,
-      lineHeight: 1.0,
+      lineHeight: 1.08,
       theme,
       allowTransparency: false,
       scrollback: 10000,

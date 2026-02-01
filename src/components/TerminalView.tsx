@@ -468,12 +468,14 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       {/* Main content area with optional FileBrowser */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* Terminal Container */}
-        <div
-          ref={containerRef}
-          className="flex-1 min-h-0 min-w-0"
-          style={{ overflow: 'hidden', padding: '8px' }}
-          onClick={() => focus()}
-        />
+        <div className="flex-1 min-h-0 min-w-0 p-2.5 box-border">
+          <div
+            ref={containerRef}
+            className="h-full w-full"
+            style={{ overflow: 'hidden' }}
+            onClick={() => focus()}
+          />
+        </div>
 
         {/* File Browser Panel */}
         {showFileBrowser && isConnected && (
