@@ -1,8 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Server,
+  Monitor,
   Plus,
+  Upload,
   ChevronLeft,
   ChevronDown,
   Trash2,
@@ -11,27 +13,28 @@ import {
   Folder,
   FolderOpen,
   MoreVertical,
-  GripVertical,
   Settings,
   Search,
   X,
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import type { Session, SessionGroup, SessionColor } from '../types';
+import { parseSessionsFile } from '../utils/sessionImport';
 
 // Color configuration
 const colorConfig: Record<SessionColor, { bg: string; border: string; text: string; dot: string }> = {
-  blue: { bg: 'bg-blue-500/20', border: 'border-blue-500/40', text: 'text-blue-400', dot: 'bg-blue-400' },
-  green: { bg: 'bg-green-500/20', border: 'border-green-500/40', text: 'text-green-400', dot: 'bg-green-400' },
-  purple: { bg: 'bg-purple-500/20', border: 'border-purple-500/40', text: 'text-purple-400', dot: 'bg-purple-400' },
-  orange: { bg: 'bg-orange-500/20', border: 'border-orange-500/40', text: 'text-orange-400', dot: 'bg-orange-400' },
-  red: { bg: 'bg-red-500/20', border: 'border-red-500/40', text: 'text-red-400', dot: 'bg-red-400' },
-  cyan: { bg: 'bg-cyan-500/20', border: 'border-cyan-500/40', text: 'text-cyan-400', dot: 'bg-cyan-400' },
-  pink: { bg: 'bg-pink-500/20', border: 'border-pink-500/40', text: 'text-pink-400', dot: 'bg-pink-400' },
-  yellow: { bg: 'bg-yellow-500/20', border: 'border-yellow-500/40', text: 'text-yellow-400', dot: 'bg-yellow-400' },
+  blue: { bg: 'bg-blue-500/20', border: 'border-blue-500/40', text: 'text-blue-600 dark:text-blue-400', dot: 'bg-blue-400' },
+  green: { bg: 'bg-green-500/20', border: 'border-green-500/40', text: 'text-green-600 dark:text-green-400', dot: 'bg-green-400' },
+  purple: { bg: 'bg-purple-500/20', border: 'border-purple-500/40', text: 'text-purple-600 dark:text-purple-400', dot: 'bg-purple-400' },
+  orange: { bg: 'bg-orange-500/20', border: 'border-orange-500/40', text: 'text-orange-600 dark:text-orange-400', dot: 'bg-orange-400' },
+  red: { bg: 'bg-red-500/20', border: 'border-red-500/40', text: 'text-red-600 dark:text-red-400', dot: 'bg-red-400' },
+  cyan: { bg: 'bg-cyan-500/20', border: 'border-cyan-500/40', text: 'text-cyan-600 dark:text-cyan-400', dot: 'bg-cyan-400' },
+  pink: { bg: 'bg-pink-500/20', border: 'border-pink-500/40', text: 'text-pink-600 dark:text-pink-400', dot: 'bg-pink-400' },
+  yellow: { bg: 'bg-yellow-500/20', border: 'border-yellow-500/40', text: 'text-yellow-600 dark:text-yellow-400', dot: 'bg-yellow-400' },
 };
 
 const allColors: SessionColor[] = ['blue', 'green', 'purple', 'orange', 'red', 'cyan', 'pink', 'yellow'];
+const SESSION_DRAG_MIME = 'application/x-ori-session-id';
 
 const getColor = (color: SessionColor) => colorConfig[color] || colorConfig.blue;
 
@@ -45,6 +48,7 @@ function SessionItem({
   onEdit,
   onDelete,
   onDragStart,
+  onDragEnd,
 }: {
   session: Session;
   isActive: boolean;
@@ -54,87 +58,119 @@ function SessionItem({
   onEdit: () => void;
   onDelete: () => void;
   onDragStart: (e: React.DragEvent, sessionId: string) => void;
+  onDragEnd: () => void;
 }) {
+  const [showMenu, setShowMenu] = useState(false);
   const colors = getColor(session.color);
-  const [isHovered, setIsHovered] = useState(false);
+  const tooltip = `${session.username}@${session.host}${
+    session.jumpHops?.length
+      ? ` (via ${session.jumpHops.map((hop) => hop.host).join(' → ')})`
+      : ''
+  }`;
+
+  if (sidebarCollapsed) {
+    return (
+      <div
+        draggable
+        onDragStart={(e) => onDragStart(e, session.id)}
+        onDragEnd={onDragEnd}
+        onClick={onSelect}
+        onDoubleClick={onConnect}
+        title={`${session.name} — ${tooltip}`}
+        className={`my-0.5 p-1 rounded-md cursor-pointer flex items-center justify-center transition-all duration-100 ${
+          isActive ? 'bg-zinc-100 dark:bg-zinc-800' : 'hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80 hover:scale-105 active:scale-95'
+        }`}
+      >
+        <div className={`w-7 h-7 rounded-md flex items-center justify-center border ${colors.bg} ${colors.border}`}>
+          <Monitor className={`w-4 h-4 ${colors.text}`} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
-      draggable={!sidebarCollapsed}
+      draggable
       onDragStart={(e) => onDragStart(e, session.id)}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onDragEnd={onDragEnd}
       onClick={onSelect}
-      className={`
-        relative p-2 rounded-lg cursor-pointer transition-all group
-        ${isActive ? 'bg-zinc-800' : 'hover:bg-zinc-800/50'}
-      `}
+      onDoubleClick={onConnect}
+      title={tooltip}
+      className={`group relative flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer transition-colors duration-100 ${
+        isActive ? 'bg-zinc-100 dark:bg-zinc-800' : 'hover:bg-zinc-200/70 dark:hover:bg-zinc-800/70'
+      }`}
     >
-      <div className="flex items-center gap-2">
-        {/* Drag handle */}
-        {!sidebarCollapsed && (
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing text-zinc-600 hover:text-zinc-400">
-            <GripVertical className="w-3.5 h-3.5" />
-          </div>
-        )}
+      <span className={`w-2 h-2 rounded-full shrink-0 ${colors.dot}`} />
+      <span className="flex-1 min-w-0 truncate text-[13px] text-zinc-800 dark:text-zinc-200">{session.name}</span>
 
-        {/* Server icon with session color */}
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${colors.bg} ${colors.border} shrink-0`}>
-          <Server className={`w-4 h-4 ${colors.text}`} />
-        </div>
+      {/* Actions: connect on hover, rest behind dots menu */}
+      <div
+        className={`flex items-center gap-0.5 transition-opacity ${
+          showMenu ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <button
+          draggable={false}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onConnect();
+          }}
+          className="p-1 rounded hover:bg-blue-500/20 text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+          title="Connect"
+        >
+          <Play className="w-3 h-3" />
+        </button>
+        <button
+          draggable={false}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowMenu(!showMenu);
+          }}
+          className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors cursor-pointer"
+          title="More actions"
+        >
+          <MoreVertical className="w-3 h-3" />
+        </button>
+      </div>
 
-        {/* Session info */}
-        {!sidebarCollapsed && (
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-sm text-zinc-200 truncate">{session.name}</div>
-            <div className="text-xs text-zinc-500 truncate">
-              {session.username}@{session.host}
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        {isHovered && !sidebarCollapsed && (
-          <div className="flex items-center gap-0.5">
+      {showMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowMenu(false);
+            }}
+          />
+          <div className="absolute right-0 top-full mt-1 z-50 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg shadow-xl py-1 min-w-[120px]">
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onConnect();
-              }}
-              className="p-1.5 rounded-md hover:bg-blue-500/20 text-zinc-400 hover:text-blue-400 transition-colors"
-              title="Connect"
-            >
-              <Play className="w-3.5 h-3.5" />
-            </button>
-            <button
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 onEdit();
+                setShowMenu(false);
               }}
-              className="p-1.5 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
-              title="Edit"
+              className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
             >
               <Edit2 className="w-3.5 h-3.5" />
+              Edit
             </button>
             <button
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete();
+                setShowMenu(false);
               }}
-              className="p-1.5 rounded-md hover:bg-red-500/20 text-zinc-400 hover:text-red-400 transition-colors"
-              title="Delete"
+              className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 flex items-center gap-2"
             >
               <Trash2 className="w-3.5 h-3.5" />
+              Delete
             </button>
           </div>
-        )}
-      </div>
-
-      {/* Jump host indicator */}
-      {session.jumpHost && !sidebarCollapsed && (
-        <div className="mt-1 ml-[52px] text-[10px] text-zinc-600">
-          via {session.jumpHost}
-        </div>
+        </>
       )}
     </div>
   );
@@ -157,14 +193,14 @@ function ColorPicker({
           e.stopPropagation();
           setIsOpen(!isOpen);
         }}
-        className={`w-4 h-4 rounded-full ${colorConfig[selectedColor].dot} hover:ring-2 hover:ring-white/30 transition-all`}
+        className={`w-4 h-4 rounded-full ${colorConfig[selectedColor].dot} hover:ring-2 hover:ring-zinc-900/30 dark:hover:ring-white/30 transition-all`}
         title="Change color"
       />
 
       {isOpen && (
         <>
           <div className="fixed inset-0 z-50" onClick={() => setIsOpen(false)} />
-          <div className="absolute left-0 top-6 z-50 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl p-2">
+          <div className="absolute left-0 top-6 z-50 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg shadow-xl p-2">
             <div className="grid grid-cols-4 gap-1.5">
               {allColors.map((color) => (
                 <button
@@ -175,7 +211,7 @@ function ColorPicker({
                     setIsOpen(false);
                   }}
                   className={`w-5 h-5 rounded-full ${colorConfig[color].dot} hover:scale-110 transition-transform ${
-                    selectedColor === color ? 'ring-2 ring-white ring-offset-1 ring-offset-zinc-800' : ''
+                    selectedColor === color ? 'ring-2 ring-zinc-900 dark:ring-white ring-offset-1 ring-offset-white dark:ring-offset-zinc-800' : ''
                   }`}
                   title={color}
                 />
@@ -204,6 +240,7 @@ function GroupSection({
   onDeleteGroup,
   onChangeGroupColor,
   onDragStart,
+  onDragEnd,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -222,8 +259,9 @@ function GroupSection({
   onDeleteGroup: () => void;
   onChangeGroupColor: (color: SessionColor) => void;
   onDragStart: (e: React.DragEvent, sessionId: string) => void;
+  onDragEnd: () => void;
   onDragOver: (e: React.DragEvent, groupId: string) => void;
-  onDragLeave: () => void;
+  onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, groupId: string) => void;
 }) {
   const [showMenu, setShowMenu] = useState(false);
@@ -240,13 +278,17 @@ function GroupSection({
           onDragOver={(e) => onDragOver(e, group.id)}
           onDragLeave={onDragLeave}
           onDrop={(e) => onDrop(e, group.id)}
-          className={`p-2 rounded-lg cursor-pointer flex flex-col items-center gap-1 transition-all ${
-            isDragOver ? 'bg-blue-500/20 ring-2 ring-blue-500' : 'hover:bg-zinc-800/50'
+          className={`p-1 my-0.5 rounded-md cursor-pointer flex items-center justify-center transition-all duration-100 ${
+            isDragOver
+              ? 'bg-blue-500/20 ring-2 ring-blue-500'
+              : 'hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80 hover:scale-105 active:scale-95'
           }`}
-          title={group.name}
+          title={`${group.name} (${groupSessions.length})`}
         >
-          <div className={`w-2 h-2 rounded-full ${colors.dot}`} />
-          <Folder className={`w-4 h-4 ${colors.text}`} />
+          {/* Group initials in the group color: readable at a glance when collapsed */}
+          <div className={`w-7 h-7 rounded-md border flex items-center justify-center text-[10px] font-bold uppercase ${colors.bg} ${colors.border} ${colors.text}`}>
+            {group.name.slice(0, 2)}
+          </div>
         </div>
         {group.isExpanded && groupSessions.map((session) => (
           <SessionItem
@@ -259,6 +301,7 @@ function GroupSection({
             onEdit={() => onEditSession(session)}
             onDelete={() => onDeleteSession(session)}
             onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
           />
         ))}
       </div>
@@ -275,7 +318,7 @@ function GroupSection({
       {/* Group Header */}
       <div
         onClick={onToggleExpand}
-        className="flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer hover:bg-zinc-800/50 group"
+        className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-zinc-200/60 dark:hover:bg-zinc-800/50 group"
       >
         <ChevronDown
           className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${group.isExpanded ? '' : '-rotate-90'}`}
@@ -286,17 +329,19 @@ function GroupSection({
         <div className={colors.text}>
           {group.isExpanded ? <FolderOpen className="w-4 h-4" /> : <Folder className="w-4 h-4" />}
         </div>
-        <span className="flex-1 text-sm font-medium text-zinc-300 truncate">{group.name}</span>
-        <span className="text-xs text-zinc-600 tabular-nums">{groupSessions.length}</span>
+        <span className="flex-1 text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">{group.name}</span>
+        <span className="text-xs text-zinc-400 dark:text-zinc-600 tabular-nums">{groupSessions.length}</span>
 
         {/* Group Menu */}
         <div className="relative">
           <button
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               setShowMenu(!showMenu);
             }}
-            className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-zinc-700 text-zinc-500 hover:text-white transition-all"
+            className="p-1 rounded opacity-70 group-hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-all cursor-pointer"
+            title="Group actions"
           >
             <MoreVertical className="w-3.5 h-3.5" />
           </button>
@@ -304,25 +349,27 @@ function GroupSection({
           {showMenu && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-full mt-1 z-50 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 min-w-[120px]">
+              <div className="absolute right-0 top-full mt-1 z-50 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg shadow-xl py-1 min-w-[120px]">
                 <button
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     onEditGroup();
                     setShowMenu(false);
                   }}
-                  className="w-full px-3 py-1.5 text-left text-sm text-zinc-300 hover:bg-zinc-700 flex items-center gap-2"
+                  className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                   Rename
                 </button>
                 <button
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     onDeleteGroup();
                     setShowMenu(false);
                   }}
-                  className="w-full px-3 py-1.5 text-left text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2"
+                  className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 flex items-center gap-2"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   Delete
@@ -343,7 +390,7 @@ function GroupSection({
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <div className={`ml-4 mt-1 space-y-0.5 border-l-2 pl-3 ${colors.border}`}>
+            <div className={`ml-3 mt-0.5 space-y-px border-l pl-2 ${colors.border}`}>
               {groupSessions.map((session) => (
                 <SessionItem
                   key={session.id}
@@ -355,11 +402,12 @@ function GroupSection({
                   onEdit={() => onEditSession(session)}
                   onDelete={() => onDeleteSession(session)}
                   onDragStart={onDragStart}
+                  onDragEnd={onDragEnd}
                 />
               ))}
               {groupSessions.length === 0 && (
                 <div className={`text-xs py-3 px-2 text-center rounded-lg border-2 border-dashed ${
-                  isDragOver ? 'border-blue-500 bg-blue-500/10 text-blue-400' : 'border-zinc-700/50 text-zinc-600'
+                  isDragOver ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'border-zinc-300 dark:border-zinc-700/50 text-zinc-400 dark:text-zinc-600'
                 }`}>
                   {isDragOver ? '↓ Drop session here' : 'Drag sessions here'}
                 </div>
@@ -385,6 +433,8 @@ export function Sidebar() {
     openSessionModal,
     openSettingsModal,
     createTab,
+    addSession,
+    addToast,
     addGroup,
     updateGroup,
     deleteGroup,
@@ -399,6 +449,8 @@ export function Sidebar() {
   const [draggingSessionId, setDraggingSessionId] = useState<string | null>(null);
   const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isImportingSessions, setIsImportingSessions] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   // Filter sessions based on search query
   const filterSessions = useCallback((sessionList: Session[], query: string): Session[] => {
@@ -417,9 +469,17 @@ export function Sidebar() {
   // Sessions without a group (from filtered results)
   const ungroupedSessions = filteredSessions.filter((s) => !s.groupId);
 
+  const getDraggedSessionId = useCallback((e: React.DragEvent) => (
+    e.dataTransfer.getData(SESSION_DRAG_MIME) ||
+    e.dataTransfer.getData('text/plain') ||
+    draggingSessionId ||
+    ''
+  ), [draggingSessionId]);
+
   // Drag handlers
   const handleDragStart = useCallback((e: React.DragEvent, sessionId: string) => {
-    console.log('Drag started:', sessionId);
+    e.stopPropagation();
+    e.dataTransfer.setData(SESSION_DRAG_MIME, sessionId);
     e.dataTransfer.setData('text/plain', sessionId);
     e.dataTransfer.effectAllowed = 'move';
     setDraggingSessionId(sessionId);
@@ -432,7 +492,12 @@ export function Sidebar() {
     setDragOverGroupId(groupId);
   }, []);
 
-  const handleDragLeave = useCallback(() => {
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    const nextTarget = e.relatedTarget;
+    if (nextTarget instanceof Node && e.currentTarget.contains(nextTarget)) {
+      return;
+    }
+
     setDragOverGroupId(null);
   }, []);
 
@@ -440,39 +505,35 @@ export function Sidebar() {
     e.preventDefault();
     e.stopPropagation();
 
-    const sessionId = e.dataTransfer.getData('text/plain');
-    console.log('Drop:', sessionId, 'to group:', groupId);
+    const sessionId = getDraggedSessionId(e);
 
     if (sessionId) {
       const session = sessions.find(s => s.id === sessionId);
       if (session && session.groupId !== groupId) {
-        console.log('Moving session to group');
-        await updateSession(sessionId, { groupId });
+        await updateSession(sessionId, { groupId }, false);
       }
     }
 
     setDraggingSessionId(null);
     setDragOverGroupId(null);
-  }, [sessions, updateSession]);
+  }, [getDraggedSessionId, sessions, updateSession]);
 
   const handleDropToUngrouped = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    const sessionId = e.dataTransfer.getData('text/plain');
-    console.log('Drop to ungrouped:', sessionId);
+    const sessionId = getDraggedSessionId(e);
 
     if (sessionId) {
       const session = sessions.find(s => s.id === sessionId);
       if (session && session.groupId) {
-        console.log('Removing from group');
-        await updateSession(sessionId, { groupId: undefined });
+        await updateSession(sessionId, { groupId: null }, false);
       }
     }
 
     setDraggingSessionId(null);
     setDragOverGroupId(null);
-  }, [sessions, updateSession]);
+  }, [getDraggedSessionId, sessions, updateSession]);
 
   const handleDragEnd = useCallback(() => {
     setDraggingSessionId(null);
@@ -519,30 +580,103 @@ export function Sidebar() {
     }
   }, [deleteGroup]);
 
+  const handleImportSessions = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setIsImportingSessions(true);
+
+    try {
+      const content = await file.text();
+      const result = parseSessionsFile(file.name, content);
+      if (result.sessions.length === 0) {
+        addToast({
+          type: 'error',
+          title: 'Import failed',
+          message: result.errors[0] ?? 'No valid sessions found',
+        });
+        return;
+      }
+
+      const groupByName = new Map(
+        groups.map((group) => [group.name.trim().toLowerCase(), group.id])
+      );
+      let importedCount = 0;
+      let failedCount = 0;
+
+      const getOrCreateGroupId = (groupName?: string) => {
+        const normalizedName = groupName?.trim();
+        if (!normalizedName) return undefined;
+
+        const groupKey = normalizedName.toLowerCase();
+        const existingGroupId = groupByName.get(groupKey);
+        if (existingGroupId) return existingGroupId;
+
+        const createdGroupId = addGroup({
+          name: normalizedName,
+          color: 'blue',
+          isExpanded: true,
+        });
+        groupByName.set(groupKey, createdGroupId);
+        return createdGroupId;
+      };
+
+      for (const importedSession of result.sessions) {
+        const { groupName, ...sessionData } = importedSession;
+        const groupId = getOrCreateGroupId(groupName);
+
+        try {
+          await addSession({ ...sessionData, groupId }, false);
+          importedCount += 1;
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      const warningCount = result.errors.length + failedCount;
+      addToast({
+        type: warningCount > 0 ? 'warning' : 'success',
+        title: 'Import completed',
+        message: warningCount > 0
+          ? `${importedCount} sessions imported, ${warningCount} skipped`
+          : `${importedCount} sessions imported`,
+        duration: 5000,
+      });
+    } catch (error) {
+      console.error('Session import failed:', error);
+      addToast({
+        type: 'error',
+        title: 'Import failed',
+        message: 'Could not read the selected file',
+      });
+    } finally {
+      setIsImportingSessions(false);
+    }
+  }, [addGroup, addSession, addToast, groups]);
+
   return (
     <motion.aside
       initial={false}
       animate={{ width: sidebarCollapsed ? 64 : 280 }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}
-      className="h-full bg-zinc-900/50 backdrop-blur-xl border-r border-zinc-800/50 flex flex-col"
+      className="h-full bg-white/70 dark:bg-zinc-900/50 backdrop-blur-xl border-r border-zinc-200 dark:border-zinc-800/50 flex flex-col"
       onDragEnd={handleDragEnd}
     >
       {/* Header */}
-      <div className="p-3 flex items-center justify-between border-b border-zinc-800/50">
-        {!sidebarCollapsed && (
-          <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="Logo" className="w-6 h-6 rounded" />
-            <span className="font-medium text-zinc-200">Sessions</span>
-          </div>
-        )}
-
-        {sidebarCollapsed && (
-          <img src="/logo.png" alt="Logo" className="w-6 h-6 rounded mx-auto" />
-        )}
+      <div
+        className={`p-3 flex border-b border-zinc-200 dark:border-zinc-800/50 ${
+          sidebarCollapsed ? 'flex-col items-center gap-2' : 'items-center justify-between'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <img src="/logo.png" alt="Logo" className="w-6 h-6 rounded" />
+          {!sidebarCollapsed && <span className="font-medium text-zinc-800 dark:text-zinc-200">Sessions</span>}
+        </div>
 
         <button
           onClick={toggleSidebar}
-          className={`p-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors ${sidebarCollapsed ? 'mx-auto mt-2' : ''}`}
+          className="p-1.5 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
           title={sidebarCollapsed ? 'Expand' : 'Collapse'}
         >
           <ChevronLeft className={`w-4 h-4 transition-transform duration-200 ${sidebarCollapsed ? 'rotate-180' : ''}`} />
@@ -561,12 +695,12 @@ export function Sidebar() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search sessions..."
-                className="w-full pl-8 pr-8 py-1.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-sm text-white placeholder-zinc-500 outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition-all"
+                className="w-full pl-8 pr-8 py-1.5 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-300 dark:border-zinc-700/50 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-500 outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition-all"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
                   title="Clear search"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -583,16 +717,31 @@ export function Sidebar() {
               {searchQuery ? `Results (${filteredSessions.length})` : 'All Sessions'}
             </span>
             <div className="flex items-center gap-1">
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".json,.csv,application/json,text/csv"
+                className="hidden"
+                onChange={handleImportSessions}
+              />
+              <button
+                onClick={() => importInputRef.current?.click()}
+                disabled={isImportingSessions}
+                className="p-1.5 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Import Sessions"
+              >
+                <Upload className="w-4 h-4" />
+              </button>
               <button
                 onClick={() => setIsAddingGroup(true)}
-                className="p-1.5 rounded-md hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="p-1.5 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
                 title="Add Group"
               >
                 <Folder className="w-4 h-4" />
               </button>
               <button
                 onClick={() => openSessionModal({ mode: 'create' })}
-                className="p-1.5 rounded-md hover:bg-zinc-800 text-zinc-500 hover:text-blue-400 transition-colors"
+                className="p-1.5 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                 title="Add Session"
               >
                 <Plus className="w-4 h-4" />
@@ -604,9 +753,24 @@ export function Sidebar() {
         {/* Collapsed: just show add button */}
         {sidebarCollapsed && (
           <div className="flex flex-col items-center gap-2 mb-3">
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,.csv,application/json,text/csv"
+              className="hidden"
+              onChange={handleImportSessions}
+            />
+            <button
+              onClick={() => importInputRef.current?.click()}
+              disabled={isImportingSessions}
+              className="p-2 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Import Sessions"
+            >
+              <Upload className="w-5 h-5" />
+            </button>
             <button
               onClick={() => openSessionModal({ mode: 'create' })}
-              className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-blue-400 transition-colors"
+              className="p-2 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
               title="Add Session"
             >
               <Plus className="w-5 h-5" />
@@ -617,14 +781,14 @@ export function Sidebar() {
         {/* Add Group Input */}
         {isAddingGroup && !sidebarCollapsed && (
           <div className="mb-3 px-1">
-            <div className="flex items-center gap-2 bg-zinc-800 rounded-lg p-2 border border-zinc-700">
-              <Folder className="w-4 h-4 text-zinc-400" />
+            <div className="flex items-center gap-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-2 border border-zinc-300 dark:border-zinc-700">
+              <Folder className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
               <input
                 type="text"
                 value={newGroupName}
                 onChange={(e) => setNewGroupName(e.target.value)}
                 placeholder="Group name..."
-                className="flex-1 bg-transparent text-sm text-white placeholder-zinc-500 outline-none"
+                className="flex-1 bg-transparent text-sm text-zinc-900 dark:text-white placeholder-zinc-500 outline-none"
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleAddGroup();
@@ -648,13 +812,13 @@ export function Sidebar() {
           {groups.map((group) => (
             <div key={group.id}>
               {editingGroup === group.id && !sidebarCollapsed ? (
-                <div className="flex items-center gap-2 bg-zinc-800 rounded-lg p-2 mb-2 border border-zinc-700">
+                <div className="flex items-center gap-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-2 mb-2 border border-zinc-300 dark:border-zinc-700">
                   <div className={`w-3 h-3 rounded-full ${getColor(group.color).dot}`} />
                   <input
                     type="text"
                     value={editGroupName}
                     onChange={(e) => setEditGroupName(e.target.value)}
-                    className="flex-1 bg-transparent text-sm text-white outline-none"
+                    className="flex-1 bg-transparent text-sm text-zinc-900 dark:text-white outline-none"
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleEditGroupSubmit(group.id);
@@ -685,6 +849,7 @@ export function Sidebar() {
                   onDeleteGroup={() => handleDeleteGroup(group.id)}
                   onChangeGroupColor={(color) => updateGroup(group.id, { color })}
                   onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
@@ -697,7 +862,7 @@ export function Sidebar() {
           {ungroupedSessions.length > 0 && (
             <>
               {groups.length > 0 && !sidebarCollapsed && (
-                <div className="px-2 py-2 text-xs text-zinc-600 font-medium">Ungrouped</div>
+                <div className="px-2 py-2 text-xs text-zinc-400 dark:text-zinc-600 font-medium">Ungrouped</div>
               )}
               {ungroupedSessions.map((session) => (
                 <SessionItem
@@ -710,6 +875,7 @@ export function Sidebar() {
                   onEdit={() => handleEdit(session)}
                   onDelete={() => handleDelete(session)}
                   onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
                 />
               ))}
             </>
@@ -720,14 +886,16 @@ export function Sidebar() {
             <div
               className={`mt-3 p-3 rounded-lg border-2 border-dashed transition-all ${
                 dragOverGroupId === 'ungrouped'
-                  ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                  : 'border-zinc-700 text-zinc-500'
+                  ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                  : 'border-zinc-300 dark:border-zinc-700 text-zinc-500'
               }`}
               onDragOver={(e) => {
                 e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = 'move';
                 setDragOverGroupId('ungrouped');
               }}
-              onDragLeave={() => setDragOverGroupId(null)}
+              onDragLeave={handleDragLeave}
               onDrop={handleDropToUngrouped}
             >
               <p className="text-xs text-center">↓ Remove from group</p>
@@ -741,7 +909,7 @@ export function Sidebar() {
               <p className="text-sm mb-2">No sessions match "{searchQuery}"</p>
               <button
                 onClick={() => setSearchQuery('')}
-                className="text-blue-400 hover:text-blue-300 text-xs font-medium"
+                className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-medium"
               >
                 Clear search
               </button>
@@ -755,7 +923,7 @@ export function Sidebar() {
               <p className="text-sm mb-3">No sessions yet</p>
               <button
                 onClick={() => openSessionModal({ mode: 'create' })}
-                className="text-blue-400 hover:text-blue-300 text-sm font-medium"
+                className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
               >
                 Add your first session
               </button>
@@ -765,10 +933,10 @@ export function Sidebar() {
       </div>
 
       {/* Settings button at bottom */}
-      <div className="p-3 border-t border-zinc-800/50">
+      <div className="p-3 border-t border-zinc-200 dark:border-zinc-800/50">
         <button
           onClick={() => openSettingsModal()}
-          className="w-full flex items-center gap-3 p-2 rounded-lg transition-colors hover:bg-zinc-800 text-zinc-400 hover:text-white"
+          className="w-full flex items-center gap-3 p-2 rounded-lg transition-colors hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
           title="Configuración"
         >
           <Settings className="w-5 h-5" />

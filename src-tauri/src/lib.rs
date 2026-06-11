@@ -4,13 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 mod db;
-mod sftp;
 mod ssh;
 
-use db::{Database, Session, SavedCommand};
-use sftp::{FileEntry, ListDirResult};
+use db::{Database, SavedCommand, Session, SessionGroup};
 use ssh::SshManager;
-use tauri_plugin_log;
 
 // ==================== GLOBAL STATE ====================
 
@@ -35,11 +32,26 @@ async fn save_session(
 }
 
 #[tauri::command]
-async fn delete_session(
-    state: tauri::State<'_, Arc<AppState>>,
-    id: String,
-) -> Result<(), String> {
+async fn delete_session(state: tauri::State<'_, Arc<AppState>>, id: String) -> Result<(), String> {
     state.db.delete_session(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_groups(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<SessionGroup>, String> {
+    state.db.get_groups().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_group(
+    state: tauri::State<'_, Arc<AppState>>,
+    group: SessionGroup,
+) -> Result<(), String> {
+    state.db.save_group(&group).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_group(state: tauri::State<'_, Arc<AppState>>, id: String) -> Result<(), String> {
+    state.db.delete_group(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -47,7 +59,10 @@ async fn get_commands(
     state: tauri::State<'_, Arc<AppState>>,
     session_id: Option<String>,
 ) -> Result<Vec<SavedCommand>, String> {
-    state.db.get_commands(session_id.as_deref()).map_err(|e| e.to_string())
+    state
+        .db
+        .get_commands(session_id.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -59,31 +74,24 @@ async fn save_command(
 }
 
 #[tauri::command]
-async fn delete_command(
-    state: tauri::State<'_, Arc<AppState>>,
-    id: String,
-) -> Result<(), String> {
+async fn delete_command(state: tauri::State<'_, Arc<AppState>>, id: String) -> Result<(), String> {
     state.db.delete_command(&id).map_err(|e| e.to_string())
 }
 
 // ==================== TAURI COMMANDS: SSH ====================
 
+/// The frontend only sends the session id: credentials are loaded and
+/// decrypted inside the backend and never cross the IPC boundary.
+/// `progress_id` is an opaque frontend id (tab id) echoed back on the
+/// `ssh_progress` event during multi-hop connections.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectParams {
-    pub host: String,
-    pub port: u16,
-    pub username: String,
-    pub auth_method: String, // "password" or "key"
-    pub password: Option<String>,
-    pub private_key_path: Option<String>,
-    pub private_key_passphrase: Option<String>,
-    pub jump_host: Option<String>,
-    pub jump_port: Option<u16>,
-    pub jump_username: Option<String>,
-    pub jump_password: Option<String>,
+    pub session_id: String,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
+    #[serde(default)]
+    pub progress_id: Option<String>,
 }
 
 #[tauri::command]
@@ -92,26 +100,36 @@ async fn ssh_connect(
     state: tauri::State<'_, Arc<AppState>>,
     params: ConnectParams,
 ) -> Result<String, String> {
-    log::info!("SSH Connect attempt: {}@{}:{} ({}x{})",
-        params.username, params.host, params.port,
-        params.cols.unwrap_or(80), params.rows.unwrap_or(24));
+    // Blocking I/O (DB + TCP + handshake) runs on a dedicated thread, not the async runtime
+    let state = state.inner().clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let session = state
+            .db
+            .get_session_secrets(&params.session_id)
+            .map_err(|e| ssh::SshError::SessionNotFound(format!("{}: {}", params.session_id, e)))?;
 
-    match state.ssh.connect(
-        &app,
-        &params.host,
-        params.port,
-        &params.username,
-        &params.auth_method,
-        params.password.as_deref(),
-        params.private_key_path.as_deref(),
-        params.private_key_passphrase.as_deref(),
-        params.jump_host.as_deref(),
-        params.jump_port,
-        params.jump_username.as_deref(),
-        params.jump_password.as_deref(),
-        params.cols,
-        params.rows,
-    ) {
+        log::info!(
+            "SSH Connect attempt: {}@{}:{} ({} hops, {}x{})",
+            session.username,
+            session.host,
+            session.port,
+            session.jump_hops.len(),
+            params.cols.unwrap_or(80),
+            params.rows.unwrap_or(24)
+        );
+
+        state.ssh.connect(
+            &app,
+            &session,
+            params.progress_id.as_deref(),
+            params.cols,
+            params.rows,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match result {
         Ok(channel_id) => {
             log::info!("SSH Connected successfully: {}", channel_id);
             Ok(channel_id)
@@ -129,8 +147,13 @@ async fn ssh_send(
     channel_id: String,
     data: String,
 ) -> Result<(), String> {
-    log::debug!("ssh_send: channel={}, data={:?}", channel_id, data);
-    state.ssh.send_command(&channel_id, &data).map_err(|e| e.to_string())
+    // Never log the data itself: it includes everything typed in the terminal
+    log::trace!("ssh_send: channel={}, {} bytes", channel_id, data.len());
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.ssh.send_command(&channel_id, &data))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -140,7 +163,13 @@ async fn ssh_resize(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    state.ssh.resize(&channel_id, cols, rows).map_err(|e| e.to_string())
+    // Resize temporarily switches the session to blocking mode (up to the SSH
+    // timeout), so it must not run on the async runtime
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.ssh.resize(&channel_id, cols, rows))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -148,85 +177,22 @@ async fn ssh_disconnect(
     state: tauri::State<'_, Arc<AppState>>,
     channel_id: String,
 ) -> Result<(), String> {
-    state.ssh.disconnect(&channel_id).map_err(|e| e.to_string())
+    // wait_close() can block until the server acknowledges: keep it off the runtime
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.ssh.disconnect(&channel_id))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
-// Logging commands removed (no external log control)
-
-// ==================== TAURI COMMANDS: SFTP ====================
-
+/// Remove a stored host key after a HostKeyMismatch (e.g. the server was
+/// legitimately reinstalled). Returns true if an entry was removed.
 #[tauri::command]
-async fn sftp_list_dir(
-    state: tauri::State<'_, Arc<AppState>>,
-    channel_id: String,
-    path: String,
-) -> Result<ListDirResult, String> {
-    log::debug!("sftp_list_dir: channel={}, path={}", channel_id, path);
-    state.ssh.sftp_list_dir(&channel_id, &path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn sftp_download(
-    state: tauri::State<'_, Arc<AppState>>,
-    channel_id: String,
-    remote_path: String,
-    local_path: String,
-) -> Result<u64, String> {
-    log::info!("sftp_download: {} -> {}", remote_path, local_path);
-    state.ssh.sftp_download(&channel_id, &remote_path, &local_path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn sftp_upload(
-    state: tauri::State<'_, Arc<AppState>>,
-    channel_id: String,
-    local_path: String,
-    remote_path: String,
-) -> Result<u64, String> {
-    log::info!("sftp_upload: {} -> {}", local_path, remote_path);
-    state.ssh.sftp_upload(&channel_id, &local_path, &remote_path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn sftp_mkdir(
-    state: tauri::State<'_, Arc<AppState>>,
-    channel_id: String,
-    path: String,
-) -> Result<(), String> {
-    log::info!("sftp_mkdir: {}", path);
-    state.ssh.sftp_mkdir(&channel_id, &path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn sftp_delete(
-    state: tauri::State<'_, Arc<AppState>>,
-    channel_id: String,
-    path: String,
-    is_dir: bool,
-) -> Result<(), String> {
-    log::info!("sftp_delete: {} (is_dir={})", path, is_dir);
-    state.ssh.sftp_delete(&channel_id, &path, is_dir).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn sftp_rename(
-    state: tauri::State<'_, Arc<AppState>>,
-    channel_id: String,
-    old_path: String,
-    new_path: String,
-) -> Result<(), String> {
-    log::info!("sftp_rename: {} -> {}", old_path, new_path);
-    state.ssh.sftp_rename(&channel_id, &old_path, &new_path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn sftp_stat(
-    state: tauri::State<'_, Arc<AppState>>,
-    channel_id: String,
-    path: String,
-) -> Result<FileEntry, String> {
-    log::debug!("sftp_stat: {}", path);
-    state.ssh.sftp_stat(&channel_id, &path).map_err(|e| e.to_string())
+async fn forget_host_key(host: String, port: u16) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || ssh::forget_host_key(&host, port))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 // ==================== APP ENTRY POINT ====================
@@ -240,9 +206,9 @@ pub fn run() {
     let state = Arc::new(AppState { db, ssh });
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
         .manage(state)
+        // Persist and restore window size/position across launches
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
@@ -256,6 +222,9 @@ pub fn run() {
             get_sessions,
             save_session,
             delete_session,
+            get_groups,
+            save_group,
+            delete_group,
             get_commands,
             save_command,
             delete_command,
@@ -264,14 +233,7 @@ pub fn run() {
             ssh_send,
             ssh_resize,
             ssh_disconnect,
-            // SFTP commands
-            sftp_list_dir,
-            sftp_download,
-            sftp_upload,
-            sftp_mkdir,
-            sftp_delete,
-            sftp_rename,
-            sftp_stat,
+            forget_host_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

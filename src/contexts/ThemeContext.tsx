@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useStore } from '../store/useStore';
 import type { AppTheme } from '../types';
 
@@ -10,6 +10,7 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (!context) {
@@ -57,15 +58,15 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     return themeMode === 'dark';
   }, [themeMode, systemPrefersDark]);
 
-  const setTheme = (theme: AppTheme) => {
+  const setTheme = useCallback((theme: AppTheme) => {
     updateSettings({ appTheme: theme });
-  };
+  }, [updateSettings]);
 
   const themeValue = useMemo(() => ({
     themeMode,
     isDark,
     setTheme,
-  }), [themeMode, isDark]);
+  }), [themeMode, isDark, setTheme]);
 
   // Apply theme class to document root
   useEffect(() => {

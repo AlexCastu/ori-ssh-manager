@@ -24,3 +24,17 @@ src-tauri/gen
 *.njsproj
 *.sln
 *.sw?
+
+# Archivos de agentes
+.claude/
+.github/agents/
+.codex/
+AGENTS.md
+AGENTE_DEV.md
+agente.md
+
+# Importaciones locales con credenciales
+sesiones-ssh*.csv
+
+# Artefactos de debug de Playwright MCP
+.playwright-mcp/

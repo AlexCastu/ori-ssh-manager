@@ -10,7 +10,19 @@ export interface SessionGroup {
   order: number;
 }
 
-export type AuthMethod = 'password' | 'key';
+export type AuthMethod = 'password' | 'key' | 'agent';
+
+// One hop of the jump chain (bastion). Secrets never come back from the
+// backend: empty on edit means "keep the stored value".
+export interface JumpHop {
+  host: string;
+  port: number;
+  username: string;
+  authMethod: AuthMethod;
+  password?: string;
+  privateKeyPath?: string;
+  privateKeyPassphrase?: string;
+}
 
 export interface Session {
   id: string;
@@ -22,10 +34,7 @@ export interface Session {
   password?: string;
   privateKeyPath?: string;
   privateKeyPassphrase?: string;
-  jumpHost?: string;
-  jumpPort?: number;
-  jumpUsername?: string;
-  jumpPassword?: string;
+  jumpHops?: JumpHop[];
   color: SessionColor;
   groupId?: string | null;
   createdAt: string;
@@ -48,11 +57,16 @@ export type AppTheme = 'light' | 'dark' | 'system';
 export interface AppSettings {
   terminalTheme: TerminalTheme;
   appTheme: AppTheme;
-  showPasswords: boolean;
   terminalFontSize?: TerminalFontSize;
+  cursorStyle?: TerminalCursorStyle;
+  scrollback?: TerminalScrollback;
 }
 
 export type TerminalFontSize = 'small' | 'medium' | 'large';
+
+export type TerminalCursorStyle = 'block' | 'bar' | 'underline';
+
+export type TerminalScrollback = 1000 | 10000 | 50000;
 
 export interface SavedCommand {
   id: string;
@@ -63,20 +77,13 @@ export interface SavedCommand {
 
 // ==================== SSH CONNECTION TYPES ====================
 
+// Credentials never cross IPC: the backend loads them from the DB by id.
+// progressId (the tab id) is echoed back on ssh_progress events (multi-hop).
 export interface ConnectParams {
-  host: string;
-  port: number;
-  username: string;
-  authMethod: AuthMethod;
-  password?: string;
-  privateKeyPath?: string;
-  privateKeyPassphrase?: string;
-  jumpHost?: string;
-  jumpPort?: number;
-  jumpUsername?: string;
-  jumpPassword?: string;
+  sessionId: string;
   cols?: number;
   rows?: number;
+  progressId?: string;
 }
 
 export interface SSHConnection {
@@ -112,6 +119,8 @@ export interface ToastMessage {
   title: string;
   message: string;
   duration?: number;
+  // Optional inline action (e.g. "forget host key" after a mismatch)
+  action?: { label: string; onClick: () => void };
 }
 
 export interface ModalState {
@@ -123,7 +132,8 @@ export interface ModalState {
 
 export interface SessionGroupsSlice {
   groups: SessionGroup[];
-  addGroup: (group: Omit<SessionGroup, 'id' | 'order'>) => void;
+  loadGroups: () => Promise<void>;
+  addGroup: (group: Omit<SessionGroup, 'id' | 'order'>) => string;
   updateGroup: (id: string, group: Partial<SessionGroup>) => void;
   deleteGroup: (id: string) => void;
   toggleGroupExpanded: (id: string) => void;
@@ -134,7 +144,7 @@ export interface SessionsSlice {
   sessions: Session[];
   activeSessionId: string | null;
   setActiveSession: (id: string | null) => void;
-  addSession: (session: Omit<Session, 'id' | 'createdAt'>) => Promise<void>;
+  addSession: (session: Omit<Session, 'id' | 'createdAt'>, showToast?: boolean) => Promise<void>;
   updateSession: (id: string, session: Partial<Session>, showToast?: boolean) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   loadSessions: () => Promise<void>;

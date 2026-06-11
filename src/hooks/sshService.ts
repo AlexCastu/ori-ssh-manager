@@ -9,6 +9,17 @@ interface PtyOutputPayload {
   data: string;
 }
 
+interface PtyClosedPayload {
+  channelId: string;
+  reason?: 'normal' | 'error';
+  exitStatus?: number | null;
+}
+
+interface SshProgressPayload {
+  progressId: string;
+  message: string;
+}
+
 interface ReconnectConfig {
   tabId: string;
   session: Session;
@@ -21,6 +32,12 @@ interface ReconnectConfig {
 function classifyError(error: string): { title: string; message: string } {
   const errorLower = error.toLowerCase();
 
+  if (errorLower.includes('host key')) {
+    return {
+      title: 'Host Key Verification Failed',
+      message: error,
+    };
+  }
   if (errorLower.includes('auth') || errorLower.includes('permission denied')) {
     return {
       title: 'Authentication Failed',
@@ -67,11 +84,16 @@ function classifyError(error: string): { title: string; message: string } {
 class SSHService {
   private static instance: SSHService;
   private callbacks = new Map<string, (data: string) => void>();
+  // Multi-hop connection progress, keyed by tab id
+  private progressCallbacks = new Map<string, (message: string) => void>();
   private reconnectConfigs = new Map<string, ReconnectConfig>();
   private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private intentionalCloseChannels = new Set<string>();
+  private inputBuffers = new Map<string, string>();
   private initialized = false;
   private outputUnlisten: (() => void) | null = null;
   private closedUnlisten: (() => void) | null = null;
+  private progressUnlisten: (() => void) | null = null;
 
   private constructor() {}
 
@@ -97,18 +119,32 @@ class SSHService {
       }
     });
 
-    // Listen for PTY closed events - trigger auto-reconnect if configured
-    this.closedUnlisten = await listen<string>('pty_closed', (event) => {
-      const channelId = event.payload;
+    // Multi-hop connection progress ("Hop 1/2: connecting to ...")
+    this.progressUnlisten = await listen<SshProgressPayload>('ssh_progress', (event) => {
+      const { progressId, message } = event.payload;
+      this.progressCallbacks.get(progressId)?.(message);
+    });
+
+    // Listen for PTY closed events - trigger auto-reconnect only for unexpected closures
+    this.closedUnlisten = await listen<PtyClosedPayload | string>('pty_closed', (event) => {
+      const closed = this.normalizeClosedPayload(event.payload);
+      const { channelId } = closed;
       const { tabs, updateTabStatus, addToast } = useStore.getState();
       const tab = tabs.find(t => t.channelId === channelId);
 
       if (tab) {
         updateTabStatus(tab.id, 'disconnected');
 
-        // Check if auto-reconnect is configured for this tab
+        const isIntentionalClose =
+          closed.reason === 'normal' || this.intentionalCloseChannels.has(channelId);
+
+        if (isIntentionalClose) {
+          this.disableAutoReconnect(tab.id);
+        }
+
+        // Check if auto-reconnect is configured for this tab and the close was unexpected
         const config = this.reconnectConfigs.get(tab.id);
-        if (config) {
+        if (config && !isIntentionalClose) {
           addToast({
             type: 'warning',
             title: 'Connection Lost',
@@ -119,7 +155,55 @@ class SSHService {
         }
       }
       this.callbacks.delete(channelId);
+      this.intentionalCloseChannels.delete(channelId);
+      this.inputBuffers.delete(channelId);
     });
+  }
+
+  private normalizeClosedPayload(payload: PtyClosedPayload | string): PtyClosedPayload {
+    if (typeof payload === 'string') {
+      return { channelId: payload, reason: 'error', exitStatus: null };
+    }
+
+    return {
+      channelId: payload.channelId,
+      reason: payload.reason ?? 'error',
+      exitStatus: payload.exitStatus ?? null,
+    };
+  }
+
+  private trackPotentialLogout(channelId: string, data: string) {
+    if (data.includes('\x04')) {
+      this.intentionalCloseChannels.add(channelId);
+      return;
+    }
+
+    let buffer = this.inputBuffers.get(channelId) ?? '';
+
+    for (const char of data) {
+      if (char === '\r' || char === '\n') {
+        const command = buffer.trim();
+        if (command === 'logout' || command === 'exit' || command.startsWith('exit ')) {
+          this.intentionalCloseChannels.add(channelId);
+        }
+        buffer = '';
+      } else if (char === '\b' || char === '\x7f') {
+        buffer = buffer.slice(0, -1);
+      } else if (char >= ' ') {
+        buffer += char;
+      }
+    }
+
+    this.inputBuffers.set(channelId, buffer.slice(-256));
+  }
+
+  // Subscribe to multi-hop connection progress for a tab
+  onProgress(tabId: string, callback: (message: string) => void) {
+    this.progressCallbacks.set(tabId, callback);
+  }
+
+  offProgress(tabId: string) {
+    this.progressCallbacks.delete(tabId);
   }
 
   // Enable auto-reconnect for a tab
@@ -188,20 +272,12 @@ class SSHService {
     const { updateTabStatus, addToast } = useStore.getState();
     updateTabStatus(tabId, 'connecting');
 
+    // Only the id travels over IPC: the backend resolves credentials internally
     const params: ConnectParams = {
-      host: session.host,
-      port: session.port,
-      username: session.username,
-      authMethod: session.authMethod || 'password',
-      password: session.password,
-      privateKeyPath: session.privateKeyPath,
-      privateKeyPassphrase: session.privateKeyPassphrase,
-      jumpHost: session.jumpHost,
-      jumpPort: session.jumpPort,
-      jumpUsername: session.jumpUsername,
-      jumpPassword: session.jumpPassword,
+      sessionId: session.id,
       cols,
       rows,
+      progressId: tabId,
     };
 
     try {
@@ -217,20 +293,56 @@ class SSHService {
       console.error('SSH connection failed:', error);
       updateTabStatus(tabId, 'error');
 
-      const errorInfo = classifyError(String(error));
+      const errorText = String(error);
+      const errorInfo = classifyError(errorText);
       addToast({
         type: 'error',
         title: errorInfo.title,
         message: errorInfo.message,
-        duration: 5000,
+        duration: errorInfo.title === 'Host Key Verification Failed' ? 12000 : 5000,
+        action: this.buildHostKeyAction(errorText),
       });
       return null;
     }
   }
 
+  /// When the failure is a host key mismatch, offer to forget the stored key
+  /// (the offending host:port is parsed from the backend error, so this also
+  /// works when the mismatch happens on a jump hop)
+  private buildHostKeyAction(errorText: string) {
+    const match = errorText.match(/Host key for ([^\s:]+):(\d+) CHANGED/i);
+    if (!match) return undefined;
+
+    const [, host, port] = match;
+    return {
+      label: `Olvidar clave de ${host}`,
+      onClick: () => {
+        invoke<boolean>('forget_host_key', { host, port: Number(port) })
+          .then((removed) => {
+            useStore.getState().addToast({
+              type: removed ? 'success' : 'warning',
+              title: removed ? 'Host key olvidada' : 'Sin cambios',
+              message: removed
+                ? 'Pulsa Reconectar para confiar en la nueva clave.'
+                : 'No se encontró la entrada en known_hosts.',
+            });
+          })
+          .catch((err) => {
+            console.error('forget_host_key failed:', err);
+            useStore.getState().addToast({
+              type: 'error',
+              title: 'Error',
+              message: 'No se pudo eliminar la host key',
+            });
+          });
+      },
+    };
+  }
+
   async send(channelId: string, data: string) {
     const { addToast } = useStore.getState();
     try {
+      this.trackPotentialLogout(channelId, data);
       await invoke('ssh_send', { channelId, data });
     } catch (error) {
       console.error('Failed to send:', error);
@@ -268,6 +380,8 @@ class SSHService {
     try {
       await invoke('ssh_disconnect', { channelId });
       this.callbacks.delete(channelId);
+      this.intentionalCloseChannels.delete(channelId);
+      this.inputBuffers.delete(channelId);
       updateTabStatus(tabId, 'disconnected');
     } catch (error) {
       console.error('Failed to disconnect:', error);
@@ -277,8 +391,12 @@ class SSHService {
   cleanup() {
     this.outputUnlisten?.();
     this.closedUnlisten?.();
+    this.progressUnlisten?.();
     this.callbacks.clear();
+    this.progressCallbacks.clear();
     this.reconnectConfigs.clear();
+    this.intentionalCloseChannels.clear();
+    this.inputBuffers.clear();
     this.reconnectTimers.forEach(timer => clearTimeout(timer));
     this.reconnectTimers.clear();
     this.initialized = false;

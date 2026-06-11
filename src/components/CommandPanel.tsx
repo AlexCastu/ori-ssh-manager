@@ -5,6 +5,7 @@ import {
   Plus,
   Play,
   Trash2,
+  Edit2,
   ChevronDown,
   ChevronLeft,
   Code,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { sshService } from '../hooks/sshService';
+import type { SavedCommand } from '../types';
 
 // Default quick-access commands always available
 const DEFAULT_COMMANDS = [
@@ -47,18 +49,33 @@ export function CommandPanel() {
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const canSendCommand = activeTab?.status === 'connected' && activeTab.channelId;
 
+  // Global commands always; session-scoped only for the active tab's session
+  const visibleCommands = commands.filter(
+    (c) => !c.sessionId || c.sessionId === activeTab?.sessionId
+  );
+
   const executeCommand = async (command: string) => {
     if (!canSendCommand || !activeTab?.channelId) return;
     await sshService.send(activeTab.channelId, command + '\n');
   };
 
+  const handleEdit = (command: SavedCommand) => {
+    openCommandModal({ command, mode: 'edit' });
+  };
+
+  const handleDelete = async (command: SavedCommand) => {
+    if (confirm(`Delete command "${command.name}"?`)) {
+      await deleteCommand(command.id);
+    }
+  };
+
   // Collapsed state - just show expand button
   if (commandPanelCollapsed) {
     return (
-      <div className="w-10 bg-zinc-900/50 backdrop-blur-xl border-l border-white/5 flex flex-col items-center py-2 gap-2">
+      <div className="w-10 bg-white/70 dark:bg-zinc-900/50 backdrop-blur-xl border-l border-zinc-200 dark:border-white/5 flex flex-col items-center py-2 gap-2">
         <button
           onClick={toggleCommandPanel}
-          className="p-2 rounded-lg hover:bg-white/5 text-zinc-400 hover:text-white transition-colors"
+          className="p-2 rounded-lg hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
           title="Show Commands"
         >
           <ChevronLeft className="w-4 h-4" />
@@ -68,21 +85,21 @@ export function CommandPanel() {
         <div className="flex flex-col gap-1 mt-2">
           <button
             onClick={() => setTerminalZoom(terminalZoom + 0.1)}
-            className="p-1.5 rounded hover:bg-white/5 text-zinc-500 hover:text-white transition-colors"
+            className="p-1.5 rounded hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors"
             title="Zoom In"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setTerminalZoom(1.0)}
-            className="p-1.5 rounded hover:bg-white/5 text-zinc-500 hover:text-white transition-colors"
+            className="p-1.5 rounded hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors"
             title="Reset Zoom"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setTerminalZoom(terminalZoom - 0.1)}
-            className="p-1.5 rounded hover:bg-white/5 text-zinc-500 hover:text-white transition-colors"
+            className="p-1.5 rounded hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors"
             title="Zoom Out"
           >
             <ZoomOut className="w-3.5 h-3.5" />
@@ -93,19 +110,19 @@ export function CommandPanel() {
   }
 
   return (
-    <div className="w-56 bg-zinc-900/50 backdrop-blur-xl border-l border-white/5 flex flex-col">
+    <div className="w-56 bg-white/70 dark:bg-zinc-900/50 backdrop-blur-xl border-l border-zinc-200 dark:border-white/5 flex flex-col">
       {/* Header with collapse button */}
-      <div className="p-2 border-b border-white/5 flex items-center justify-between">
+      <div className="p-2 border-b border-zinc-200 dark:border-white/5 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Command className="w-4 h-4 text-blue-400" />
-          <span className="text-xs font-medium text-zinc-300">Commands</span>
+          <Command className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Commands</span>
         </div>
         <div className="flex items-center gap-1">
           {/* Zoom controls */}
           <button
             onClick={() => setTerminalZoom(terminalZoom - 0.1)}
             disabled={terminalZoom <= 0.7}
-            className="p-1 rounded hover:bg-white/5 text-zinc-500 hover:text-white disabled:opacity-30 transition-colors"
+            className="p-1 rounded hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-500 hover:text-zinc-900 dark:hover:text-white disabled:opacity-30 transition-colors"
             title="Zoom Out"
           >
             <ZoomOut className="w-3.5 h-3.5" />
@@ -116,14 +133,14 @@ export function CommandPanel() {
           <button
             onClick={() => setTerminalZoom(terminalZoom + 0.1)}
             disabled={terminalZoom >= 1.5}
-            className="p-1 rounded hover:bg-white/5 text-zinc-500 hover:text-white disabled:opacity-30 transition-colors"
+            className="p-1 rounded hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-500 hover:text-zinc-900 dark:hover:text-white disabled:opacity-30 transition-colors"
             title="Zoom In"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={toggleCommandPanel}
-            className="p-1 rounded hover:bg-white/5 text-zinc-400 hover:text-white transition-colors ml-1"
+            className="p-1 rounded hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors ml-1"
             title="Hide Commands"
           >
             <ChevronLeft className="w-4 h-4 rotate-180" />
@@ -134,10 +151,10 @@ export function CommandPanel() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {/* Quick Access - Default Commands */}
-        <div className="border-b border-white/5">
+        <div className="border-b border-zinc-200 dark:border-white/5">
           <button
             onClick={() => setQuickExpanded(!quickExpanded)}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-[10px] font-medium text-zinc-500 hover:text-zinc-300 uppercase tracking-wider"
+            className="w-full flex items-center gap-2 px-2 py-1.5 text-[10px] font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 uppercase tracking-wider"
           >
             <Zap className="w-3 h-3" />
             <span>Quick Access</span>
@@ -157,11 +174,11 @@ export function CommandPanel() {
                       key={cmd.id}
                       onClick={() => executeCommand(cmd.command)}
                       disabled={!canSendCommand}
-                      className="flex items-center gap-1 px-1.5 py-1 rounded text-left transition-colors hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed group"
+                      className="flex items-center gap-1 px-1.5 py-1 rounded text-left transition-colors hover:bg-zinc-900/5 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed group"
                       title={cmd.command}
                     >
-                      <Play className="w-2.5 h-2.5 text-zinc-600 group-hover:text-green-400 shrink-0" />
-                      <span className="text-[10px] text-zinc-400 group-hover:text-zinc-200 truncate">{cmd.name}</span>
+                      <Play className="w-2.5 h-2.5 text-zinc-400 dark:text-zinc-600 group-hover:text-green-600 dark:group-hover:text-green-400 shrink-0" />
+                      <span className="text-[10px] text-zinc-600 dark:text-zinc-400 group-hover:text-zinc-800 dark:group-hover:text-zinc-200 truncate">{cmd.name}</span>
                     </button>
                   ))}
                 </div>
@@ -172,33 +189,50 @@ export function CommandPanel() {
 
         {/* User Saved Commands */}
         <div className="p-1.5 space-y-0.5">
-          {commands.length > 0 && (
+          {visibleCommands.length > 0 && (
             <div className="px-1 py-1 text-[10px] font-medium text-zinc-500 uppercase tracking-wider">
               Saved
             </div>
           )}
 
-          {commands.map((cmd) => (
+          {visibleCommands.map((cmd) => (
             <div
               key={cmd.id}
-              className="group p-1.5 rounded hover:bg-white/5 transition-colors"
+              className="group p-1.5 rounded hover:bg-zinc-900/5 dark:hover:bg-white/5 transition-colors"
             >
               <div className="flex items-center justify-between mb-0.5">
-                <span className="text-xs font-medium text-zinc-300 truncate">
-                  {cmd.name}
-                </span>
+                <div className="flex items-center gap-1 min-w-0">
+                  <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">
+                    {cmd.name}
+                  </span>
+                  {cmd.sessionId && (
+                    <span
+                      className="shrink-0 px-1 rounded text-[8px] font-semibold uppercase bg-blue-500/15 text-blue-600 dark:text-blue-400"
+                      title="Only visible for its session"
+                    >
+                      Session
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => executeCommand(cmd.command)}
                     disabled={!canSendCommand}
-                    className="p-0.5 rounded hover:bg-green-500/20 text-zinc-400 hover:text-green-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="p-0.5 rounded hover:bg-green-500/20 text-zinc-600 dark:text-zinc-400 hover:text-green-600 dark:hover:text-green-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                     title="Run"
                   >
                     <Play className="w-3 h-3" />
                   </button>
                   <button
-                    onClick={() => deleteCommand(cmd.id)}
-                    className="p-0.5 rounded hover:bg-red-500/20 text-zinc-400 hover:text-red-400 transition-colors"
+                    onClick={() => handleEdit(cmd)}
+                    className="p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
+                    title="Edit"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(cmd)}
+                    className="p-0.5 rounded hover:bg-red-500/20 text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
                     title="Delete"
                   >
                     <Trash2 className="w-3 h-3" />
@@ -211,7 +245,7 @@ export function CommandPanel() {
             </div>
           ))}
 
-          {commands.length === 0 && (
+          {visibleCommands.length === 0 && (
             <div className="text-center py-3 text-zinc-500">
               <Code className="w-4 h-4 mx-auto mb-1 opacity-50" />
               <p className="text-[10px]">No saved commands</p>
@@ -220,10 +254,10 @@ export function CommandPanel() {
         </div>
 
         {/* Add Command Button */}
-        <div className="p-1.5 border-t border-white/5">
+        <div className="p-1.5 border-t border-zinc-200 dark:border-white/5">
           <button
             onClick={() => openCommandModal()}
-            className="w-full flex items-center justify-center gap-1.5 p-1.5 rounded border border-dashed border-white/10 text-zinc-400 hover:text-white hover:border-blue-500/50 hover:bg-blue-500/5 transition-colors"
+            className="w-full flex items-center justify-center gap-1.5 p-1.5 rounded border border-dashed border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:border-blue-500/50 hover:bg-blue-500/5 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             <span className="text-xs">Add Command</span>

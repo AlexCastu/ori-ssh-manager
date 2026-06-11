@@ -14,12 +14,27 @@ import type {
 // Generate unique IDs
 const generateId = () => crypto.randomUUID();
 
+// One-time migration: groups used to live only in zustand's localStorage
+// persistence; now they live in SQLite. Read whatever an older version left.
+function readLegacyGroupsFromLocalStorage(): SessionGroup[] {
+  try {
+    const raw = localStorage.getItem('ori-sshmanager-storage');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { state?: { groups?: unknown } };
+    const groups = parsed?.state?.groups;
+    return Array.isArray(groups) ? (groups as SessionGroup[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 // Default settings
 const defaultSettings: AppSettings = {
   terminalTheme: 'nord-dark',
   appTheme: 'dark',
-  showPasswords: false,
   terminalFontSize: 'medium',
+  cursorStyle: 'block',
+  scrollback: 10000,
 };
 
 export const useStore = create<AppStore>()(
@@ -59,6 +74,7 @@ export const useStore = create<AppStore>()(
       initialize: async () => {
         try {
           await get().loadSessions();
+          await get().loadGroups();
           await get().loadCommands();
           set({ isInitialized: true });
         } catch (error) {
@@ -84,7 +100,7 @@ export const useStore = create<AppStore>()(
         }
       },
 
-      addSession: async (sessionData) => {
+      addSession: async (sessionData, showToast = true) => {
         const session: Session = {
           ...sessionData,
           authMethod: sessionData.authMethod || 'password',
@@ -95,18 +111,22 @@ export const useStore = create<AppStore>()(
         try {
           await invoke('save_session', { session });
           set((state) => ({ sessions: [...state.sessions, session] }));
-          get().addToast({
-            type: 'success',
-            title: 'Session Created',
-            message: `Session "${session.name}" has been saved`,
-          });
+          if (showToast) {
+            get().addToast({
+              type: 'success',
+              title: 'Session Created',
+              message: `Session "${session.name}" has been saved`,
+            });
+          }
         } catch (error) {
           console.error('Failed to save session:', error);
-          get().addToast({
-            type: 'error',
-            title: 'Error',
-            message: 'Failed to save session',
-          });
+          if (showToast) {
+            get().addToast({
+              type: 'error',
+              title: 'Error',
+              message: 'Failed to save session',
+            });
+          }
           throw error;
         }
       },
@@ -279,10 +299,13 @@ export const useStore = create<AppStore>()(
     const { tabs, activeTabId } = get();
     const tabToClose = tabs.find((t) => t.id === tabId);
 
-    // Disconnect SSH session if connected
+    // Disconnect through sshService so its per-channel state (callbacks,
+    // reconnect timers, input buffers) is cleaned up too.
+    // Dynamic import avoids a static circular dependency.
     if (tabToClose?.channelId) {
       try {
-        await invoke('disconnect', { channelId: tabToClose.channelId });
+        const { sshService } = await import('../hooks/sshService');
+        await sshService.disconnect(tabId, tabToClose.channelId);
       } catch (error) {
         console.error('Failed to disconnect:', error);
       }
@@ -408,6 +431,26 @@ export const useStore = create<AppStore>()(
   },
 
   // ==================== SESSION GROUPS ====================
+  // Groups live in SQLite (like the sessions that reference them). Local
+  // state updates optimistically; persistence failures only log.
+  loadGroups: async () => {
+    try {
+      let groups = await invoke<SessionGroup[]>('get_groups');
+      if (groups.length === 0) {
+        const legacy = readLegacyGroupsFromLocalStorage();
+        if (legacy.length > 0) {
+          await Promise.all(legacy.map((group) => invoke('save_group', { group })));
+          groups = legacy;
+          console.info(`Migrated ${legacy.length} groups from localStorage to SQLite`);
+        }
+      }
+      set({ groups });
+    } catch (error) {
+      console.error('Failed to load groups:', error);
+      throw error;
+    }
+  },
+
   addGroup: (groupData) => {
     const { groups } = get();
     const group: SessionGroup = {
@@ -416,12 +459,22 @@ export const useStore = create<AppStore>()(
       order: groups.length,
     };
     set((state) => ({ groups: [...state.groups, group] }));
+    invoke('save_group', { group }).catch((error) =>
+      console.error('Failed to persist group:', error)
+    );
+    return group.id;
   },
 
   updateGroup: (id, updates) => {
     set((state) => ({
       groups: state.groups.map((g) => (g.id === id ? { ...g, ...updates } : g)),
     }));
+    const group = get().groups.find((g) => g.id === id);
+    if (group) {
+      invoke('save_group', { group }).catch((error) =>
+        console.error('Failed to persist group:', error)
+      );
+    }
   },
 
   deleteGroup: (id) => {
@@ -432,6 +485,10 @@ export const useStore = create<AppStore>()(
         s.groupId === id ? { ...s, groupId: null } : s
       ),
     }));
+    // Backend also sets group_id = NULL on the group's sessions
+    invoke('delete_group', { id }).catch((error) =>
+      console.error('Failed to delete group:', error)
+    );
   },
 
   toggleGroupExpanded: (id) => {
@@ -440,6 +497,12 @@ export const useStore = create<AppStore>()(
         g.id === id ? { ...g, isExpanded: !g.isExpanded } : g
       ),
     }));
+    const group = get().groups.find((g) => g.id === id);
+    if (group) {
+      invoke('save_group', { group }).catch((error) =>
+        console.error('Failed to persist group:', error)
+      );
+    }
   },
 
   reorderSessions: (_groupId, sessionIds) => {
@@ -469,8 +532,8 @@ export const useStore = create<AppStore>()(
 }),
     {
       name: 'ori-sshmanager-storage',
+      // Groups are NOT persisted here anymore: they live in SQLite
       partialize: (state) => ({
-        groups: state.groups,
         settings: state.settings,
         sidebarCollapsed: state.sidebarCollapsed,
         commandPanelCollapsed: state.commandPanelCollapsed,

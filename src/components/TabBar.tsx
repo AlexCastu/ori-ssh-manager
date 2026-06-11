@@ -25,7 +25,7 @@ export function TabBar() {
   }
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1 bg-zinc-900/50 border-b border-white/5 overflow-x-auto">
+    <div className="flex items-center gap-1 px-2 py-1 bg-white/70 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-white/5 overflow-x-auto">
       <AnimatePresence mode="popLayout">
         {tabs.map((tab) => {
           const session = getSessionForTab(tab.sessionId);
@@ -43,8 +43,8 @@ export function TabBar() {
                 group flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm
                 transition-colors min-w-[120px] max-w-[200px]
                 ${isActive
-                  ? 'bg-white/10 text-white'
-                  : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                  ? 'bg-zinc-900/10 dark:bg-white/10 text-zinc-900 dark:text-white'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-900/5 dark:hover:bg-white/5'
                 }
               `}
             >
@@ -58,7 +58,7 @@ export function TabBar() {
                   e.stopPropagation();
                   closeTab(tab.id);
                 }}
-                className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all"
+                className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-zinc-900/10 dark:hover:bg-white/10 transition-all"
               >
                 <X className="w-3 h-3" />
               </button>

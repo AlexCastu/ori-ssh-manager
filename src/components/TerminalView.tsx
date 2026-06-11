@@ -1,9 +1,8 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { X, Circle, RefreshCw, StopCircle, Copy, ClipboardList, FolderOpen } from 'lucide-react';
+import { X, Circle, RefreshCw, StopCircle, Copy, ClipboardList, Search, ChevronUp, ChevronDown } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTerminal } from '../hooks/useTerminal';
 import { sshService } from '../hooks/sshService';
-import { FileBrowser } from './FileBrowser';
 
 interface TerminalViewProps {
   tabId: string;
@@ -11,6 +10,9 @@ interface TerminalViewProps {
 
 // Max buffer size: 500KB to prevent memory issues on long sessions
 const MAX_BUFFER_SIZE = 500 * 1024;
+
+// Base font size in px per settings option (zoom multiplies on top)
+const FONT_SIZES = { small: 12, medium: 14, large: 16 } as const;
 
 // Trim buffer keeping only the last portion when it exceeds max size
 function trimBuffer(buffer: string, maxSize: number): string {
@@ -20,57 +22,86 @@ function trimBuffer(buffer: string, maxSize: number): string {
 }
 
 export function TerminalView({ tabId }: TerminalViewProps) {
-  const { tabs, sessions, closeTab, updateTabStatus, settings, addToast, getTabBuffer, setTabBuffer, terminalZoom } = useStore();
+  const { tabs, sessions, closeTab, updateTabStatus, settings, addToast, terminalZoom } = useStore();
   const containerRef = useRef<HTMLDivElement>(null);
-  const hasConnectedRef = useRef(false);
   const currentChannelRef = useRef<string | null>(null);
   const bufferRef = useRef('');
-  const [showFileBrowser, setShowFileBrowser] = useState(false);
 
   const tab = tabs.find((t) => t.id === tabId);
   const session = sessions.find((s) => s.id === tab?.sessionId);
 
-  const terminalBackground = settings?.terminalTheme === 'nord-light' ? '#eceff4' : '#2e3440';
-  const baseFontSize = 14;
+  const isLightTheme = settings?.terminalTheme === 'nord-light';
+  const terminalBackground = isLightTheme ? '#eceff4' : '#2e3440';
+  const baseFontSize = FONT_SIZES[settings?.terminalFontSize ?? 'medium'];
   const fontSize = Math.round(baseFontSize * terminalZoom);
+  const cursorStyle = settings?.cursorStyle ?? 'block';
+  const scrollback = settings?.scrollback ?? 10000;
 
-  const handleData = useCallback(
-    (data: string) => {
-      if (tab?.channelId) {
-        sshService.send(tab.channelId, data);
-      }
-    },
-    [tab?.channelId]
-  );
+  // Keep the channel ref in sync with the store (covers auto-reconnect,
+  // where sshService creates a new channelId without remounting this view)
+  useEffect(() => {
+    currentChannelRef.current = tab?.channelId ?? null;
+  }, [tab?.channelId]);
+
+  const handleData = useCallback((data: string) => {
+    const channelId = currentChannelRef.current;
+    if (channelId) {
+      sshService.send(channelId, data);
+    }
+  }, []);
 
   const handleResize = useCallback(
     (cols: number, rows: number) => {
-      if (!tab?.channelId) return;
-      if (tab.status !== 'connected') return;
-      sshService.resize(tab.channelId, cols, rows).catch((err) => {
-        console.error('Resize failed', { tabId, channelId: tab.channelId, cols, rows, err });
+      const channelId = currentChannelRef.current;
+      if (!channelId) return;
+      const currentTab = useStore.getState().tabs.find((t) => t.id === tabId);
+      if (currentTab?.status !== 'connected') return;
+      sshService.resize(channelId, cols, rows).catch((err) => {
+        console.error('Resize failed', { tabId, channelId, cols, rows, err });
       });
     },
-    [tab?.channelId, tab?.status, tabId]
+    [tabId]
   );
 
-  const { initTerminal, write, writeln, focus, fit, getSize, getBufferText, getLastBlock, scrollToBottom, setFontSize } = useTerminal({
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const { initTerminal, write, writeln, focus, fit, getSize, getBufferText, getLastBlock, scrollToBottom, applyOptions, findNext, findPrevious, clearSearch } = useTerminal({
     onData: handleData,
     onResize: handleResize,
     fontSize,
+    background: terminalBackground,
+    isLight: isLightTheme,
+    cursorStyle,
+    scrollback,
   });
 
-  // Update font size when zoom changes
+  // Apply settings changes (theme, font size/zoom, cursor, scrollback) to the
+  // live terminal without recreating it
   useEffect(() => {
-    setFontSize(fontSize);
-  }, [fontSize, setFontSize]);
+    applyOptions();
+  }, [applyOptions, fontSize, terminalBackground, isLightTheme, cursorStyle, scrollback]);
 
+  // Mount terminal + connect/attach exactly once per tab.
+  // Depends only on tabId so the terminal is NOT destroyed and
+  // recreated when channelId/status change after connecting.
   useEffect(() => {
-    if (!containerRef.current || !session || !tab) return;
+    const state = useStore.getState();
+    const currentTab = state.tabs.find((t) => t.id === tabId);
+    const currentSession = state.sessions.find((s) => s.id === currentTab?.sessionId);
+    if (!containerRef.current || !currentTab || !currentSession) return;
 
     const cleanup = initTerminal(containerRef.current);
 
-    const previousBuffer = getTabBuffer(tabId);
+    // Multi-hop connection progress ("Hop 1/2: ...") written into the terminal
+    sshService.onProgress(tabId, (message) => {
+      const line = `\x1b[36m${message}\x1b[0m\r\n`;
+      write(line);
+      bufferRef.current = trimBuffer(bufferRef.current + line, MAX_BUFFER_SIZE);
+    });
+
+    const previousBuffer = state.getTabBuffer(tabId);
     if (previousBuffer) {
       bufferRef.current = previousBuffer;
       write(previousBuffer);
@@ -97,9 +128,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
         focus();
 
         // Enable auto-reconnect
-        if (session) {
-          sshService.enableAutoReconnect(tabId, session, size.cols, size.rows, onDataCallback);
-        }
+        sshService.enableAutoReconnect(tabId, currentSession, size.cols, size.rows, onDataCallback);
       }, 200);
     };
 
@@ -107,27 +136,24 @@ export function TerminalView({ tabId }: TerminalViewProps) {
       fit();
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      if (tab.channelId) {
-        attachToChannel(tab.channelId);
-        hasConnectedRef.current = true;
+      if (currentTab.channelId) {
+        attachToChannel(currentTab.channelId);
         return;
       }
 
       const { cols, rows } = getSize();
 
-      const connectMsg = `\x1b[33mConnecting to ${session.name} (${session.host})...\x1b[0m\r\n`;
+      const connectMsg = `\x1b[33mConnecting to ${currentSession.name} (${currentSession.host})...\x1b[0m\r\n`;
       write(connectMsg);
       bufferRef.current += connectMsg;
 
-      const channelId = await sshService.connect(tabId, session, cols, rows);
+      const channelId = await sshService.connect(tabId, currentSession, cols, rows);
 
       if (channelId) {
-        hasConnectedRef.current = true;
         attachToChannel(channelId);
       } else {
         writeln(`\x1b[31mConnection failed. Click reconnect to retry.\x1b[0m`);
-        hasConnectedRef.current = false;
-        addToast({
+        useStore.getState().addToast({
           type: 'error',
           title: 'Conexión fallida',
           message: 'No se pudo establecer la sesión SSH',
@@ -141,23 +167,69 @@ export function TerminalView({ tabId }: TerminalViewProps) {
     setTimeout(() => focus(), 50);
 
     return () => {
-      const channelToClean = currentChannelRef.current || tab.channelId;
-      if (channelToClean) {
-        sshService.stopReading(channelToClean);
+      // Never throw from unmount cleanup: it would tear down the whole app
+      try {
+        if (currentChannelRef.current) {
+          sshService.stopReading(currentChannelRef.current);
+        }
+        sshService.offProgress(tabId);
+        sshService.disableAutoReconnect(tabId);
+        const persisted = bufferRef.current || getBufferText();
+        useStore.getState().setTabBuffer(tabId, persisted || '');
+      } catch (e) {
+        console.warn('Terminal teardown failed', e);
       }
-      sshService.disableAutoReconnect(tabId);
-      const persisted = bufferRef.current || getBufferText();
-      setTabBuffer(tabId, persisted || '');
-
       cleanup?.();
     };
-  }, [tabId, tab?.channelId, session?.id, initTerminal, fit, getSize, write, focus, writeln, getTabBuffer, setTabBuffer, getBufferText, scrollToBottom, addToast]);
+  }, [tabId, initTerminal, fit, getSize, write, focus, writeln, getBufferText, scrollToBottom]);
 
   useEffect(() => {
     const handleWindowResize = () => fit();
     window.addEventListener('resize', handleWindowResize);
     return () => window.removeEventListener('resize', handleWindowResize);
   }, [fit]);
+
+  // Cmd+F (macOS) / Ctrl+Shift+F opens in-terminal search, Escape closes it.
+  // Plain Ctrl+F is NOT intercepted: it's forward-char in bash/readline.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      const isSearchCombo =
+        (e.metaKey && !e.ctrlKey && key === 'f') || (e.ctrlKey && e.shiftKey && key === 'f');
+
+      if (isSearchCombo) {
+        e.preventDefault();
+        e.stopPropagation(); // keep the combo away from xterm
+        setSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.focus(), 0);
+      } else if (e.key === 'Escape' && searchOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeSearch();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchOpen]);
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    clearSearch();
+    focus();
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        findPrevious(searchQuery);
+      } else {
+        findNext(searchQuery);
+      }
+    }
+  };
 
   const handleReconnect = async () => {
     if (!session || !tab) return;
@@ -199,6 +271,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
   const sanitizeCopiedText = (raw: string) => {
     return raw
+      // eslint-disable-next-line no-control-regex
       .replace(/\x1b\[[0-9;]*m/g, '') // Strip ANSI escape codes
       .split('\n')
       .filter((line) => !/^last login/i.test(line.trim()))
@@ -264,26 +337,20 @@ export function TerminalView({ tabId }: TerminalViewProps) {
 
   const isConnected = tab.status === 'connected';
 
-  const handleFileBrowserNavigate = useCallback((path: string) => {
-    if (tab?.channelId) {
-      sshService.send(tab.channelId, `cd "${path}"\n`);
-    }
-  }, [tab?.channelId]);
-
   return (
     <div className="h-full flex overflow-hidden" style={{ backgroundColor: terminalBackground }}>
       {/* Main Terminal Section */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Tab Header */}
-        <div className="flex items-center justify-between px-4 py-2 border-b shrink-0 bg-zinc-900/80 border-white/5">
+        <div className="flex items-center justify-between px-4 py-2 border-b shrink-0 bg-white/80 dark:bg-zinc-900/80 border-zinc-200 dark:border-white/5">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <Circle className={`w-2.5 h-2.5 ${statusConfig.color}`} fill="currentColor" />
-              <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-zinc-400">
+              <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-900/5 dark:bg-white/5 text-zinc-600 dark:text-zinc-400">
                 {statusConfig.label}
               </span>
             </div>
-            <span className="text-sm font-medium text-white" title={tab.title}>
+            <span className="text-sm font-medium text-zinc-900 dark:text-white" title={tab.title}>
               {tab.title}
             </span>
             <span className="text-xs text-zinc-500">
@@ -292,31 +359,19 @@ export function TerminalView({ tabId }: TerminalViewProps) {
           </div>
           <div className="flex items-center gap-1">
             {isConnected && (
-              <>
-                <button
-                  onClick={() => setShowFileBrowser(!showFileBrowser)}
-                  aria-label="File Browser"
-                  className={`p-1.5 rounded-lg transition-colors hover:bg-white/5 ${
-                    showFileBrowser ? 'text-blue-400 bg-blue-500/10' : 'text-zinc-400 hover:text-blue-400'
-                  }`}
-                  title="File Browser (SFTP)"
-                >
-                  <FolderOpen className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleStop}
-                  aria-label="Disconnect"
-                  className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-orange-400"
-                  title="Disconnect"
-                >
-                  <StopCircle className="w-4 h-4" />
-                </button>
-              </>
+              <button
+                onClick={handleStop}
+                aria-label="Disconnect"
+                className="p-1.5 rounded-lg transition-colors hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-orange-600 dark:hover:text-orange-400"
+                title="Disconnect"
+              >
+                <StopCircle className="w-4 h-4" />
+              </button>
             )}
             <button
               onClick={handleCopyOutput}
               aria-label="Copiar todo"
-              className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-white/5 text-zinc-400 hover:text-blue-300"
+              className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-blue-700 dark:hover:text-blue-300"
               title="Copiar todo"
             >
               <Copy className="w-4 h-4" />
@@ -325,7 +380,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
             <button
               onClick={handleCopyLastCommand}
               aria-label="Copiar último bloque"
-              className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-white/5 text-zinc-400 hover:text-emerald-300"
+              className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-emerald-700 dark:hover:text-emerald-300"
               title="Copiar último comando/bloque"
             >
               <ClipboardList className="w-4 h-4" />
@@ -335,7 +390,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
               <button
                 onClick={handleReconnect}
                 aria-label="Reconnect"
-                className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-green-400"
+                className="p-1.5 rounded-lg transition-colors hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-green-600 dark:hover:text-green-400"
                 title="Reconnect"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -344,7 +399,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
             <button
               onClick={handleClose}
               aria-label="Cerrar pestaña"
-              className="p-1.5 rounded-lg transition-colors hover:bg-white/5 text-zinc-400 hover:text-red-400"
+              className="p-1.5 rounded-lg transition-colors hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
               title="Close"
             >
               <X className="w-4 h-4" />
@@ -352,22 +407,53 @@ export function TerminalView({ tabId }: TerminalViewProps) {
           </div>
         </div>
 
-        {/* Terminal Container */}
-        <div
-          ref={containerRef}
-          className="flex-1 p-2 overflow-hidden min-h-0"
-          onClick={() => focus()}
-        />
+        {/* Terminal Container: padding lives on the wrapper so FitAddon
+            measures the inner element's exact content box */}
+        <div className="relative flex-1 min-h-0 overflow-hidden px-2 pt-1 pb-2" onClick={() => focus()}>
+          {searchOpen && (
+            <div
+              className="absolute top-2 right-4 z-10 flex items-center gap-1 px-2 py-1.5 rounded-lg border border-zinc-300 dark:border-white/10 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl shadow-lg"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Search className="w-4 h-4 text-zinc-500 shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  findNext(e.target.value);
+                }}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Buscar... (Enter / Shift+Enter)"
+                className="w-52 bg-transparent text-sm text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none"
+              />
+              <button
+                onClick={() => findPrevious(searchQuery)}
+                className="p-1 rounded hover:bg-zinc-900/5 dark:hover:bg-white/10 text-zinc-600 dark:text-zinc-400"
+                title="Anterior (Shift+Enter)"
+              >
+                <ChevronUp className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => findNext(searchQuery)}
+                className="p-1 rounded hover:bg-zinc-900/5 dark:hover:bg-white/10 text-zinc-600 dark:text-zinc-400"
+                title="Siguiente (Enter)"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              <button
+                onClick={closeSearch}
+                className="p-1 rounded hover:bg-zinc-900/5 dark:hover:bg-white/10 text-zinc-600 dark:text-zinc-400"
+                title="Cerrar (Esc)"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          <div ref={containerRef} className="h-full w-full overflow-hidden" />
+        </div>
       </div>
-
-      {/* File Browser Panel */}
-      {showFileBrowser && isConnected && (
-        <FileBrowser
-          channelId={tab.channelId ?? null}
-          onClose={() => setShowFileBrowser(false)}
-          onNavigate={handleFileBrowserNavigate}
-        />
-      )}
     </div>
   );
 }

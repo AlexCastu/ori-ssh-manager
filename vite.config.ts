@@ -8,4 +8,16 @@ export default defineConfig({
     port: 5175,
     strictPort: true,
   },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom'],
+          xterm: ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-web-links', '@xterm/addon-webgl'],
+          motion: ['framer-motion'],
+        },
+      },
+    },
+  },
 })

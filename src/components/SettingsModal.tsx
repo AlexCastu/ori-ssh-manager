@@ -1,8 +1,8 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Monitor, Moon, Sun, Palette, Eye, EyeOff, Shield, Laptop, Type } from 'lucide-react';
+import { X, Monitor, Moon, Sun, Palette, Laptop, Type, TerminalSquare, History } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../contexts/ThemeContext';
-import type { TerminalTheme, AppTheme, TerminalFontSize } from '../types';
+import type { TerminalTheme, AppTheme, TerminalFontSize, TerminalCursorStyle, TerminalScrollback } from '../types';
 
 const terminalThemes: { id: TerminalTheme; name: string; icon: typeof Moon; preview: { bg: string; fg: string } }[] = [
   {
@@ -61,6 +61,18 @@ const terminalFontSizes: { id: TerminalFontSize; name: string; description: stri
   },
 ];
 
+const cursorStyles: { id: TerminalCursorStyle; name: string; preview: string }[] = [
+  { id: 'block', name: 'Block', preview: '█' },
+  { id: 'bar', name: 'Bar', preview: '▏' },
+  { id: 'underline', name: 'Underline', preview: '▁' },
+];
+
+const scrollbackOptions: { id: TerminalScrollback; name: string; description: string }[] = [
+  { id: 1000, name: '1K', description: 'Light, low memory' },
+  { id: 10000, name: '10K', description: 'Balanced (default)' },
+  { id: 50000, name: '50K', description: 'Long history, more memory' },
+];
+
 export function SettingsModal() {
   const { settingsModal, closeSettingsModal, settings, updateSettings } = useStore();
   const { isDark } = useTheme();
@@ -82,7 +94,7 @@ export function SettingsModal() {
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.95, opacity: 0 }}
           onClick={(e) => e.stopPropagation()}
-          className={`w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border p-6 shadow-2xl backdrop-blur-xl ${
+          className={`w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl border p-6 shadow-2xl backdrop-blur-xl ${
             isDark
               ? 'border-white/10 bg-zinc-900/95'
               : 'border-zinc-200 bg-white/95'
@@ -111,6 +123,10 @@ export function SettingsModal() {
             </button>
           </div>
 
+          {/* Two-column layout: minimizes vertical scrolling */}
+          <div className="grid grid-cols-2 gap-x-8">
+          {/* Left column */}
+          <div>
           {/* App Theme Selection */}
           <div className="space-y-4">
             <div className={`flex items-center gap-2 text-sm font-medium ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
@@ -233,8 +249,12 @@ export function SettingsModal() {
             </div>
           </div>
 
+          </div>
+
+          {/* Right column */}
+          <div>
           {/* Terminal Font Size */}
-          <div className="mt-6 space-y-4">
+          <div className="space-y-4">
             <div className={`flex items-center gap-2 text-sm font-medium ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
               <Type className="h-4 w-4" />
               <span>Terminal Font Size</span>
@@ -288,40 +308,91 @@ export function SettingsModal() {
             </div>
           </div>
 
-          {/* Security Settings */}
+          {/* Cursor Style */}
           <div className="mt-6 space-y-4">
             <div className={`flex items-center gap-2 text-sm font-medium ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
-              <Shield className="h-4 w-4" />
-              <span>Security</span>
+              <TerminalSquare className="h-4 w-4" />
+              <span>Cursor Style</span>
             </div>
 
-            <div className={`rounded-lg border p-4 ${isDark ? 'border-white/10 bg-white/5' : 'border-zinc-200 bg-zinc-50'}`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {settings.showPasswords ? (
-                    <Eye className="h-5 w-5 text-cyan-400" />
-                  ) : (
-                    <EyeOff className={`h-5 w-5 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`} />
-                  )}
-                  <div>
-                    <div className={`text-sm font-medium ${isDark ? 'text-white' : 'text-zinc-900'}`}>Show Passwords</div>
-                    <div className={`text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>Display passwords in session forms</div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => updateSettings({ showPasswords: !settings.showPasswords })}
-                  className={`relative h-6 w-11 rounded-full transition-colors ${
-                    settings.showPasswords ? 'bg-cyan-500' : isDark ? 'bg-zinc-600' : 'bg-zinc-300'
-                  }`}
-                >
-                  <div
-                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-md transition-transform ${
-                      settings.showPasswords ? 'translate-x-5' : 'translate-x-0.5'
+            <div className="grid grid-cols-3 gap-3">
+              {cursorStyles.map((style) => {
+                const isSelected = (settings.cursorStyle ?? 'block') === style.id;
+
+                return (
+                  <button
+                    key={style.id}
+                    onClick={() => updateSettings({ cursorStyle: style.id })}
+                    className={`group relative flex flex-col items-center gap-2 rounded-xl border p-3 transition-all ${
+                      isSelected
+                        ? 'border-cyan-500 bg-cyan-500/10'
+                        : isDark
+                          ? 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+                          : 'border-zinc-200 bg-zinc-50 hover:border-zinc-300 hover:bg-zinc-100'
                     }`}
-                  />
-                </button>
-              </div>
+                  >
+                    <span className={`font-mono text-base leading-none ${isSelected ? 'text-cyan-400' : isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                      {style.preview}
+                    </span>
+                    <span className={`text-xs font-medium ${isSelected ? (isDark ? 'text-white' : 'text-zinc-900') : isDark ? 'text-zinc-300' : 'text-zinc-600'}`}>
+                      {style.name}
+                    </span>
+
+                    {isSelected && (
+                      <motion.div
+                        layoutId="cursor-style-indicator"
+                        className="absolute -top-px -right-px h-3 w-3 rounded-bl-lg rounded-tr-xl bg-cyan-500"
+                      />
+                    )}
+                  </button>
+                );
+              })}
             </div>
+          </div>
+
+          {/* Scrollback */}
+          <div className="mt-6 space-y-4">
+            <div className={`flex items-center gap-2 text-sm font-medium ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+              <History className="h-4 w-4" />
+              <span>Scrollback History</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              {scrollbackOptions.map((option) => {
+                const isSelected = (settings.scrollback ?? 10000) === option.id;
+
+                return (
+                  <button
+                    key={option.id}
+                    onClick={() => updateSettings({ scrollback: option.id })}
+                    className={`group relative flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-all ${
+                      isSelected
+                        ? 'border-cyan-500 bg-cyan-500/10'
+                        : isDark
+                          ? 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+                          : 'border-zinc-200 bg-zinc-50 hover:border-zinc-300 hover:bg-zinc-100'
+                    }`}
+                  >
+                    <span className={`text-sm font-medium ${isSelected ? (isDark ? 'text-white' : 'text-zinc-900') : isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+                      {option.name} lines
+                    </span>
+                    <span className={`text-xs ${isSelected ? (isDark ? 'text-zinc-300' : 'text-zinc-600') : isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                      {option.description}
+                    </span>
+
+                    {isSelected && (
+                      <motion.div
+                        layoutId="scrollback-indicator"
+                        className="absolute -top-px -right-px h-3 w-3 rounded-bl-lg rounded-tr-xl bg-cyan-500"
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          </div>
           </div>
 
           {/* Version Info */}
