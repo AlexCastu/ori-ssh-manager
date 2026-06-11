@@ -38,3 +38,7 @@ sesiones-ssh*.csv
 
 # Artefactos de debug de Playwright MCP
 .playwright-mcp/
+
+# Datos internos con credenciales reales
+globals.py
+sesiones-ssh*.csv

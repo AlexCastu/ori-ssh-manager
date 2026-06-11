@@ -1,6 +1,6 @@
 [package]
 name = "ori-sshmanager"
-version = "1.1.0"
+version = "1.1.1"
 description = "ORI-SSHManager - Desktop SSH Session Manager"
 authors = ["You"]
 license = "MIT"
@@ -29,7 +29,9 @@ dirs = "6"
 rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
 uuid = { version = "1.0", features = ["v4"] }
 thiserror = "2"
-ssh2 = "0.9"
+# vendored-openssl: compila OpenSSL para la arquitectura objetivo (necesario
+# para cross-compilar x86_64 desde runners ARM; en Windows se usa WinCNG)
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 aes-gcm = { version = "0.10", features = ["std"] }
 base64 = "0.22"
 rand_core = "0.6"
