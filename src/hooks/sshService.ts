@@ -157,6 +157,12 @@ class SSHService {
       this.callbacks.delete(channelId);
       this.intentionalCloseChannels.delete(channelId);
       this.inputBuffers.delete(channelId);
+
+      // Free the backend-side resources of the dead channel right away
+      // (otherwise they linger until the next connect)
+      invoke('ssh_cleanup_dead').catch((err) =>
+        console.error('ssh_cleanup_dead failed:', err)
+      );
     });
   }
 

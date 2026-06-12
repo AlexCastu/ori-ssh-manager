@@ -1,6 +1,7 @@
 //! SSH Connection module for SSH Manager
 
 use crate::db::{JumpHop, Session as SessionConfig};
+use polling::{Event, Events, Poller};
 use ssh2::{Channel, CheckResult, KnownHostFileKind, KnownHostKeyFormat, Session as SshSession};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -17,8 +18,11 @@ use uuid::Uuid;
 // Tuning constants
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const SSH_BLOCKING_TIMEOUT_MS: u32 = 15_000;
-const READ_POLL_INTERVAL: Duration = Duration::from_millis(5);
-const TUNNEL_POLL_INTERVAL: Duration = Duration::from_millis(2);
+// Idle threads block on socket readability instead of spinning; the timeout
+// only bounds how often housekeeping (keepalive, running flag) runs
+const SOCKET_WAIT_TIMEOUT: Duration = Duration::from_millis(500);
+// Fallback when no poller is available (socket clone failed): old behavior
+const FALLBACK_POLL_INTERVAL: Duration = Duration::from_millis(5);
 const WRITE_RETRY_INTERVAL: Duration = Duration::from_millis(2);
 const READ_BUFFER_SIZE: usize = 16384;
 // Coalesce PTY output: emit one IPC event per batch instead of per read
@@ -107,14 +111,82 @@ fn tcp_connect(host: &str, port: u16) -> Result<TcpStream, SshError> {
     ))
 }
 
-/// Write a full buffer retrying on WouldBlock (needed on non-blocking sessions)
+/// Blocks the calling thread until one of the watched sockets is readable (or
+/// the timeout expires). Replaces fixed-interval sleep polling: idle SSH
+/// threads now consume ~0% CPU. Falls back to a short sleep if the OS poller
+/// cannot be set up.
+struct ReadWaiter {
+    sockets: Vec<TcpStream>,
+    poller: Option<Poller>,
+    events: Events,
+}
+
+impl ReadWaiter {
+    fn new(sockets: Vec<TcpStream>) -> Self {
+        let poller = if sockets.is_empty() {
+            None
+        } else {
+            Poller::new().ok().and_then(|p| {
+                for (i, socket) in sockets.iter().enumerate() {
+                    // SAFETY: the sockets live in this struct for the whole
+                    // lifetime of the poller (deleted on Drop)
+                    unsafe { p.add(socket, Event::readable(i)) }.ok()?;
+                }
+                Some(p)
+            })
+        };
+        ReadWaiter {
+            sockets,
+            poller,
+            events: Events::new(),
+        }
+    }
+
+    fn wait(&mut self, timeout: Duration) {
+        match &self.poller {
+            Some(poller) => {
+                self.events.clear();
+                let _ = poller.wait(&mut self.events, Some(timeout));
+                // Events are oneshot: re-arm every socket for the next wait
+                for (i, socket) in self.sockets.iter().enumerate() {
+                    let _ = poller.modify(socket, Event::readable(i));
+                }
+            }
+            None => thread::sleep(FALLBACK_POLL_INTERVAL),
+        }
+    }
+}
+
+impl Drop for ReadWaiter {
+    fn drop(&mut self) {
+        if let Some(poller) = &self.poller {
+            for socket in &self.sockets {
+                let _ = poller.delete(socket);
+            }
+        }
+    }
+}
+
+/// Write a full buffer retrying on WouldBlock (needed on non-blocking sessions).
+/// First retries yield the CPU quantum instead of sleeping: on Windows,
+/// thread::sleep rounds up to the ~15 ms timer granularity, which would
+/// throttle large pastes/transfers badly.
 fn write_full<W: Write>(writer: &mut W, mut data: &[u8]) -> std::io::Result<()> {
+    let mut spins = 0u32;
     while !data.is_empty() {
         match writer.write(data) {
             Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
-            Ok(n) => data = &data[n..],
+            Ok(n) => {
+                data = &data[n..];
+                spins = 0;
+            }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(WRITE_RETRY_INTERVAL)
+                if spins < 64 {
+                    spins += 1;
+                    thread::yield_now();
+                } else {
+                    thread::sleep(WRITE_RETRY_INTERVAL);
+                }
             }
             Err(e) => return Err(e),
         }
@@ -195,10 +267,7 @@ fn emit_progress(app: &tauri::AppHandle, progress_id: Option<&str>, message: Str
 
 /// Path of the app-managed known_hosts file (next to the database)
 fn known_hosts_path() -> PathBuf {
-    dirs::config_dir()
-        .map(|p| p.join("SSHManager"))
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("known_hosts")
+    crate::db::data_dir().join("known_hosts")
 }
 
 /// OpenSSH known_hosts host token for a host/port pair
@@ -342,11 +411,29 @@ fn authenticate(
 
 /// Bridge a local TCP stream and an SSH direct-tcpip channel (jump tunnel).
 /// Keeps the hop session alive for the lifetime of the tunnel.
-fn bridge_streams(mut local: TcpStream, mut channel: Channel, hop_session: SshSession) {
+/// `transport` is a clone of the hop session's underlying socket, used only
+/// to wait for readability without spinning.
+fn bridge_streams(
+    mut local: TcpStream,
+    mut channel: Channel,
+    hop_session: SshSession,
+    transport: Option<TcpStream>,
+) {
     hop_session.set_blocking(false);
     if local.set_nonblocking(true).is_err() {
         return;
     }
+
+    // Wake on data from either side: the local loopback socket or the hop's
+    // SSH transport socket
+    let mut wait_sockets: Vec<TcpStream> = Vec::with_capacity(2);
+    if let Ok(clone) = local.try_clone() {
+        wait_sockets.push(clone);
+    }
+    if let Some(socket) = transport {
+        wait_sockets.push(socket);
+    }
+    let mut waiter = ReadWaiter::new(wait_sockets);
 
     let mut buf = vec![0u8; READ_BUFFER_SIZE];
     loop {
@@ -383,7 +470,7 @@ fn bridge_streams(mut local: TcpStream, mut channel: Channel, hop_session: SshSe
         }
 
         if idle {
-            thread::sleep(TUNNEL_POLL_INTERVAL);
+            waiter.wait(SOCKET_WAIT_TIMEOUT);
         }
     }
 
@@ -395,7 +482,11 @@ fn bridge_streams(mut local: TcpStream, mut channel: Channel, hop_session: SshSe
 /// a local loopback socket pair (an ssh2 Channel is not a TcpStream, but the
 /// next SSH session in the chain needs one). The hop session moves into the
 /// bridge thread, which keeps it alive for the tunnel's lifetime.
-fn bridge_to_loopback(channel: Channel, hop_session: SshSession) -> Result<TcpStream, SshError> {
+fn bridge_to_loopback(
+    channel: Channel,
+    hop_session: SshSession,
+    transport: Option<TcpStream>,
+) -> Result<TcpStream, SshError> {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|e| SshError::ConnectionFailed(format!("Local tunnel bind: {}", e)))?;
     let local_addr = listener
@@ -425,7 +516,7 @@ fn bridge_to_loopback(channel: Channel, hop_session: SshSession) -> Result<TcpSt
         ));
     }
 
-    thread::spawn(move || bridge_streams(local, channel, hop_session));
+    thread::spawn(move || bridge_streams(local, channel, hop_session, transport));
 
     stream.set_nodelay(true).ok();
     Ok(stream)
@@ -457,7 +548,12 @@ fn open_chain_stream(
     emit_progress(
         app,
         progress_id,
-        format!("Hop 1/{}: connecting to {}:{}...", total, first.host, hop_port(first)),
+        format!(
+            "Hop 1/{}: connecting to {}:{}...",
+            total,
+            first.host,
+            hop_port(first)
+        ),
     );
     let mut stream = tcp_connect(&first.host, hop_port(first))
         .map_err(|e| SshError::ConnectionFailed(format!("Hop 1 ({}): {}", first.host, e)))?;
@@ -472,13 +568,17 @@ fn open_chain_stream(
             format!("Hop {}/{}: authenticating on {}...", hop_n, total, hop.host),
         );
 
+        // Clone of the transport socket: the bridge thread waits on it for
+        // readability instead of spin-polling
+        let transport = stream.try_clone().ok();
+
         let mut session = SshSession::new()?;
         session.set_timeout(SSH_BLOCKING_TIMEOUT_MS);
         session.set_compress(true);
         session.set_tcp_stream(stream);
-        session
-            .handshake()
-            .map_err(|e| SshError::ConnectionFailed(format!("Hop {} ({}): {}", hop_n, hop.host, e)))?;
+        session.handshake().map_err(|e| {
+            SshError::ConnectionFailed(format!("Hop {} ({}): {}", hop_n, hop.host, e))
+        })?;
         verify_host_key(&session, &hop.host, port)?;
 
         let username = if hop.username.trim().is_empty() {
@@ -519,7 +619,7 @@ fn open_chain_stream(
                 ))
             })?;
 
-        stream = bridge_to_loopback(channel, session)?;
+        stream = bridge_to_loopback(channel, session, transport)?;
     }
 
     Ok(stream)
@@ -598,6 +698,10 @@ impl SshManager {
             format!("Authenticating on {}:{}...", config.host, port),
         );
 
+        // Clone of the transport socket: the reader thread waits on it for
+        // readability instead of sleep-polling every few ms
+        let wait_socket = stream.try_clone().ok();
+
         let mut session = SshSession::new()?;
         session.set_timeout(SSH_BLOCKING_TIMEOUT_MS);
         session.set_compress(true);
@@ -651,6 +755,8 @@ impl SshManager {
             let mut pending: Vec<u8> = Vec::with_capacity(READ_BUFFER_SIZE);
             let mut last_flush = Instant::now();
             let mut last_keepalive = Instant::now();
+            // Blocks on socket readability while idle (~0% CPU between keys)
+            let mut waiter = ReadWaiter::new(wait_socket.into_iter().collect());
 
             loop {
                 if !running_clone.load(Ordering::Relaxed) {
@@ -694,7 +800,7 @@ impl SshManager {
                             emit_pty_closed(&app_handle, &channel_id_clone, "normal", exit_status);
                             break;
                         }
-                        thread::sleep(READ_POLL_INTERVAL);
+                        waiter.wait(SOCKET_WAIT_TIMEOUT);
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         // Idle: deliver whatever is pending (low-latency path for typing)
@@ -707,7 +813,8 @@ impl SshManager {
                             }
                             last_keepalive = Instant::now();
                         }
-                        thread::sleep(READ_POLL_INTERVAL);
+                        // Block (without the lock) until the server sends data
+                        waiter.wait(SOCKET_WAIT_TIMEOUT);
                     }
                     Err(_) => {
                         flush_pending(&app_handle, &channel_id_clone, &mut pending);
@@ -798,7 +905,10 @@ mod tests {
     #[test]
     fn expand_tilde_plain_paths_untouched() {
         assert_eq!(expand_tilde("/etc/ssh"), PathBuf::from("/etc/ssh"));
-        assert_eq!(expand_tilde("relative/path"), PathBuf::from("relative/path"));
+        assert_eq!(
+            expand_tilde("relative/path"),
+            PathBuf::from("relative/path")
+        );
     }
 
     #[test]

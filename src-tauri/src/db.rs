@@ -8,7 +8,12 @@ use base64::{engine::general_purpose, Engine as _};
 use rand_core::RngCore;
 use rusqlite::{params, Connection, OptionalExtension, Result as SqliteResult};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, sync::Mutex};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+};
+use zeroize::Zeroize;
 
 // Field-level encryption to avoid storing cleartext credentials on disk.
 // Key is generated once per device and stored alongside the database.
@@ -89,6 +94,16 @@ pub struct SavedCommand {
 pub struct Database {
     conn: Mutex<Connection>,
     key: [u8; 32],
+    // Tras las migraciones de arranque ya no debe existir ningún secreto sin
+    // prefijo "v1:": en modo estricto un valor en claro es un error (BD
+    // manipulada o corrupta), no un passthrough silencioso
+    strict_decrypt: bool,
+}
+
+impl Drop for Database {
+    fn drop(&mut self) {
+        self.key.zeroize();
+    }
 }
 
 // Row tuples used by the startup migrations
@@ -103,6 +118,13 @@ fn corrupt_secret_err() -> rusqlite::Error {
     rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
         std::io::ErrorKind::InvalidData,
         "Stored credential is corrupted (decryption failed). Re-enter it in the session editor.",
+    )))
+}
+
+fn plaintext_secret_err() -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "Stored credential is not encrypted (unexpected plaintext). Re-enter it in the session editor.",
     )))
 }
 
@@ -127,10 +149,15 @@ fn encrypt_value(key: &[u8; 32], plaintext: &str) -> SqliteResult<String> {
     ))
 }
 
-/// Decrypt a `v1:` value. Values without the prefix are legacy plaintext and
-/// returned as-is (the startup migration re-encrypts them). A value that has
+/// Decrypt a `v1:` value. In lenient mode (during startup migrations) values
+/// without the prefix are legacy plaintext and returned as-is; in strict mode
+/// (normal operation, after migrations) they are an error. A value that has
 /// the prefix but fails to decrypt is a hard error, not a silent None.
-fn decrypt_value(key: &[u8; 32], ciphertext: &Option<String>) -> SqliteResult<Option<String>> {
+fn decrypt_value(
+    key: &[u8; 32],
+    ciphertext: &Option<String>,
+    strict: bool,
+) -> SqliteResult<Option<String>> {
     let Some(value) = ciphertext else {
         return Ok(None);
     };
@@ -139,6 +166,9 @@ fn decrypt_value(key: &[u8; 32], ciphertext: &Option<String>) -> SqliteResult<Op
     }
 
     let Some(stripped) = value.strip_prefix("v1:") else {
+        if strict {
+            return Err(plaintext_secret_err());
+        }
         return Ok(Some(value.clone()));
     };
 
@@ -158,18 +188,54 @@ fn decrypt_value(key: &[u8; 32], ciphertext: &Option<String>) -> SqliteResult<Op
 
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     let nonce = Nonce::from_slice(&nonce_bytes);
-    let plaintext = cipher
+    let mut plaintext = cipher
         .decrypt(nonce, data_bytes.as_ref())
         .map_err(|_| corrupt_secret_err())?;
 
-    Ok(Some(String::from_utf8_lossy(&plaintext).into_owned()))
+    let result = String::from_utf8_lossy(&plaintext).into_owned();
+    plaintext.zeroize();
+    Ok(Some(result))
+}
+
+/// App data directory (database, known_hosts, legacy key file).
+/// Windows: %LOCALAPPDATA%\SSHManager — the SQLite WAL database must NOT live
+/// in the roaming profile (%APPDATA%), which corporate domains sync over the
+/// network (slow logins, risk of WAL corruption). Existing data is migrated
+/// once from the old roaming path. macOS/Linux keep using config_dir.
+pub fn data_dir() -> &'static PathBuf {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        #[cfg(windows)]
+        {
+            let new_dir = dirs::data_local_dir()
+                .map(|p| p.join("SSHManager"))
+                .unwrap_or_else(|| PathBuf::from("."));
+            if !new_dir.exists() {
+                if let Some(old_dir) = dirs::config_dir().map(|p| p.join("SSHManager")) {
+                    if old_dir.exists() {
+                        if fs::rename(&old_dir, &new_dir).is_err() {
+                            // Locked or cross-volume: keep using the old path
+                            // (never risk losing the database)
+                            return old_dir;
+                        }
+                        log::info!("Data dir migrated from roaming to local AppData");
+                    }
+                }
+            }
+            new_dir
+        }
+        #[cfg(not(windows))]
+        {
+            dirs::config_dir()
+                .map(|p| p.join("SSHManager"))
+                .unwrap_or_else(|| PathBuf::from("."))
+        }
+    })
 }
 
 impl Database {
     pub fn new() -> SqliteResult<Self> {
-        let base_dir: PathBuf = dirs::config_dir()
-            .map(|p| p.join("SSHManager"))
-            .unwrap_or_else(|| PathBuf::from("."));
+        let base_dir: PathBuf = data_dir().clone();
         let db_path = base_dir.join("data.db");
         let key_path = base_dir.join(KEY_FILENAME);
 
@@ -189,7 +255,7 @@ impl Database {
 
         // WAL avoids reader/writer blocking; NORMAL sync is safe with WAL
         let _: String = conn.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
-        conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
+        conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=NORMAL;")?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS sessions (
@@ -267,12 +333,16 @@ impl Database {
             [],
         )?;
 
-        let db = Database {
+        let mut db = Database {
             conn: Mutex::new(conn),
             key,
+            // Lenient while migrations may still find legacy plaintext
+            strict_decrypt: false,
         };
         db.reencrypt_legacy_secrets()?;
         db.migrate_legacy_jump_columns()?;
+        // From here on every stored secret carries the "v1:" prefix
+        db.strict_decrypt = true;
         Ok(db)
     }
 
@@ -283,7 +353,9 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let has_jump_password: bool = conn
-            .prepare("SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name='jump_password'")?
+            .prepare(
+                "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name='jump_password'",
+            )?
             .query_row([], |row| row.get::<_, i32>(0))
             .map(|count| count > 0)
             .unwrap_or(false);
@@ -309,7 +381,9 @@ impl Database {
         };
 
         for (id, password, passphrase, jump_password) in rows {
-            if !is_plaintext(&password) && !is_plaintext(&passphrase) && !is_plaintext(&jump_password)
+            if !is_plaintext(&password)
+                && !is_plaintext(&passphrase)
+                && !is_plaintext(&jump_password)
             {
                 continue;
             }
@@ -325,7 +399,11 @@ impl Database {
 
             conn.execute(
                 "UPDATE sessions SET password = ?2, private_key_passphrase = ?3 WHERE id = ?1",
-                params![id, encrypt_if_plaintext(password.clone())?, encrypt_if_plaintext(passphrase)?],
+                params![
+                    id,
+                    encrypt_if_plaintext(password.clone())?,
+                    encrypt_if_plaintext(passphrase)?
+                ],
             )?;
             if has_jump_password && is_plaintext(&jump_password) {
                 conn.execute(
@@ -360,7 +438,13 @@ impl Database {
                    AND (jump_chain IS NULL OR jump_chain = '')",
             )?;
             let mapped = stmt.query_map([], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
             })?;
             mapped.collect::<SqliteResult<_>>()?
         };
@@ -392,7 +476,7 @@ impl Database {
     }
 
     fn decrypt(&self, ciphertext: &Option<String>) -> SqliteResult<Option<String>> {
-        decrypt_value(&self.key, ciphertext)
+        decrypt_value(&self.key, ciphertext, self.strict_decrypt)
     }
 
     const SESSION_COLUMNS: &'static str =
@@ -558,9 +642,11 @@ impl Database {
     }
 
     pub fn delete_session(&self, id: &str) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
-        Ok(())
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM commands WHERE session_id = ?1", params![id])?;
+        tx.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
+        tx.commit()
     }
 
     // ==================== GROUPS ====================
@@ -600,13 +686,14 @@ impl Database {
 
     /// Delete a group and detach its sessions (group_id = NULL)
     pub fn delete_group(&self, id: &str) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE sessions SET group_id = NULL WHERE group_id = ?1",
             params![id],
         )?;
-        conn.execute("DELETE FROM groups WHERE id = ?1", params![id])?;
-        Ok(())
+        tx.execute("DELETE FROM groups WHERE id = ?1", params![id])?;
+        tx.commit()
     }
 
     // ==================== COMMANDS ====================
@@ -663,40 +750,40 @@ const KEYRING_USER: &str = "db-encryption-key";
 /// 3. key.bin fallback when no keychain backend is available
 fn load_or_create_key(legacy_path: &PathBuf) -> SqliteResult<[u8; 32]> {
     if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
-        // Existing key in the OS keychain
-        if let Ok(stored) = entry.get_password() {
-            if let Ok(bytes) = general_purpose::STANDARD.decode(&stored) {
+        // Existing key in the OS keychain (zeroize every intermediate buffer)
+        if let Ok(mut stored) = entry.get_password() {
+            let decoded = general_purpose::STANDARD.decode(&stored);
+            stored.zeroize();
+            if let Ok(mut bytes) = decoded {
                 if bytes.len() == 32 {
                     let mut key = [0u8; 32];
                     key.copy_from_slice(&bytes);
+                    bytes.zeroize();
                     return Ok(key);
                 }
+                bytes.zeroize();
             }
         }
 
         // Migrate legacy key.bin into the keychain (delete file only on success)
-        if let Ok(existing) = fs::read(legacy_path) {
+        if let Ok(mut existing) = fs::read(legacy_path) {
             if existing.len() == 32 {
                 let mut key = [0u8; 32];
                 key.copy_from_slice(&existing);
-                if entry
-                    .set_password(&general_purpose::STANDARD.encode(key))
-                    .is_ok()
-                {
+                existing.zeroize();
+                if store_key_in_keyring(&entry, &key) {
                     fs::remove_file(legacy_path).ok();
                     log::info!("Encryption key migrated from key.bin to OS keychain");
                 }
                 return Ok(key);
             }
+            existing.zeroize();
         }
 
         // First run: generate and store in the keychain
         let mut key = [0u8; 32];
         OsRng.fill_bytes(&mut key);
-        if entry
-            .set_password(&general_purpose::STANDARD.encode(key))
-            .is_ok()
-        {
+        if store_key_in_keyring(&entry, &key) {
             return Ok(key);
         }
         // Keychain write failed: fall back to file with this key
@@ -704,16 +791,25 @@ fn load_or_create_key(legacy_path: &PathBuf) -> SqliteResult<[u8; 32]> {
     }
 
     // No keychain backend at all: file-based behavior
-    if let Ok(existing) = fs::read(legacy_path) {
+    if let Ok(mut existing) = fs::read(legacy_path) {
         if existing.len() == 32 {
             let mut key = [0u8; 32];
             key.copy_from_slice(&existing);
+            existing.zeroize();
             return Ok(key);
         }
+        existing.zeroize();
     }
     let mut key = [0u8; 32];
     OsRng.fill_bytes(&mut key);
     write_key_file(legacy_path, key)
+}
+
+fn store_key_in_keyring(entry: &keyring::Entry, key: &[u8; 32]) -> bool {
+    let mut encoded = general_purpose::STANDARD.encode(key);
+    let ok = entry.set_password(&encoded).is_ok();
+    encoded.zeroize();
+    ok
 }
 
 fn write_key_file(path: &PathBuf, key: [u8; 32]) -> SqliteResult<[u8; 32]> {
@@ -741,26 +837,96 @@ mod tests {
         key
     }
 
+    fn test_database() -> Database {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL DEFAULT 22,
+                username TEXT NOT NULL,
+                auth_method TEXT NOT NULL DEFAULT 'password',
+                password TEXT,
+                private_key_path TEXT,
+                private_key_passphrase TEXT,
+                jump_chain TEXT,
+                color TEXT NOT NULL DEFAULT 'blue',
+                group_id TEXT,
+                created_at TEXT NOT NULL
+             );
+             CREATE TABLE groups (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT 'blue',
+                is_expanded INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE commands (
+                id TEXT PRIMARY KEY,
+                session_id TEXT,
+                name TEXT NOT NULL,
+                command TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+             );",
+        )
+        .unwrap();
+
+        Database {
+            conn: Mutex::new(conn),
+            key: test_key(),
+            strict_decrypt: true,
+        }
+    }
+
+    fn test_session(id: &str) -> Session {
+        Session {
+            id: id.to_string(),
+            name: "Test session".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 22,
+            username: "tester".to_string(),
+            auth_method: "password".to_string(),
+            password: Some("secret".to_string()),
+            private_key_path: None,
+            private_key_passphrase: None,
+            jump_hops: Vec::new(),
+            color: "blue".to_string(),
+            group_id: None,
+            created_at: "2026-06-11T00:00:00.000Z".to_string(),
+        }
+    }
+
     #[test]
     fn encrypt_decrypt_roundtrip() {
         let key = test_key();
         let encrypted = encrypt_value(&key, "s3cr3t-páss").unwrap();
         assert!(encrypted.starts_with("v1:"));
-        let decrypted = decrypt_value(&key, &Some(encrypted)).unwrap();
+        let decrypted = decrypt_value(&key, &Some(encrypted), true).unwrap();
         assert_eq!(decrypted.as_deref(), Some("s3cr3t-páss"));
     }
 
     #[test]
-    fn decrypt_legacy_plaintext_passthrough() {
+    fn decrypt_legacy_plaintext_passthrough_lenient_only() {
         let key = test_key();
-        let decrypted = decrypt_value(&key, &Some("plaintext".to_string())).unwrap();
+        let decrypted = decrypt_value(&key, &Some("plaintext".to_string()), false).unwrap();
         assert_eq!(decrypted.as_deref(), Some("plaintext"));
+    }
+
+    #[test]
+    fn decrypt_strict_rejects_plaintext() {
+        // After the startup migrations every secret carries "v1:"; a bare
+        // value at runtime means the DB was tampered with or corrupted
+        let key = test_key();
+        let result = decrypt_value(&key, &Some("plaintext".to_string()), true);
+        assert!(result.is_err());
     }
 
     #[test]
     fn decrypt_corrupted_value_is_error() {
         let key = test_key();
-        let result = decrypt_value(&key, &Some("v1:AAAA:corrupted!!".to_string()));
+        let result = decrypt_value(&key, &Some("v1:AAAA:corrupted!!".to_string()), true);
         assert!(result.is_err());
     }
 
@@ -770,7 +936,7 @@ mod tests {
         let encrypted = encrypt_value(&key, "secret").unwrap();
         let mut other_key = test_key();
         other_key[0] ^= 0xff;
-        assert!(decrypt_value(&other_key, &Some(encrypted)).is_err());
+        assert!(decrypt_value(&other_key, &Some(encrypted), true).is_err());
     }
 
     #[test]
@@ -778,10 +944,12 @@ mod tests {
         let key = test_key();
         assert_eq!(encrypt_value(&key, "").unwrap(), "");
         assert_eq!(
-            decrypt_value(&key, &Some(String::new())).unwrap().as_deref(),
+            decrypt_value(&key, &Some(String::new()), true)
+                .unwrap()
+                .as_deref(),
             Some("")
         );
-        assert_eq!(decrypt_value(&key, &None).unwrap(), None);
+        assert_eq!(decrypt_value(&key, &None, true).unwrap(), None);
     }
 
     #[test]
@@ -809,5 +977,56 @@ mod tests {
             serde_json::from_str(r#"[{"host":"b1","username":"u"}]"#).unwrap();
         assert_eq!(parsed[0].port, 22);
         assert_eq!(parsed[0].auth_method, "password");
+    }
+
+    #[test]
+    fn delete_session_removes_session_and_scoped_commands() {
+        let db = test_database();
+        let session = test_session("session-1");
+        db.save_session(&session).unwrap();
+        db.save_command(&SavedCommand {
+            id: "command-session".to_string(),
+            session_id: Some(session.id.clone()),
+            name: "Session command".to_string(),
+            command: "uptime".to_string(),
+        })
+        .unwrap();
+        db.save_command(&SavedCommand {
+            id: "command-global".to_string(),
+            session_id: None,
+            name: "Global command".to_string(),
+            command: "pwd".to_string(),
+        })
+        .unwrap();
+
+        db.delete_session(&session.id).unwrap();
+
+        assert!(db.get_sessions().unwrap().is_empty());
+        let commands = db.get_commands(None).unwrap();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].id, "command-global");
+    }
+
+    #[test]
+    fn delete_group_detaches_sessions_and_removes_group() {
+        let db = test_database();
+        let group = SessionGroup {
+            id: "group-1".to_string(),
+            name: "Production".to_string(),
+            color: "red".to_string(),
+            is_expanded: true,
+            sort_order: 0,
+        };
+        let mut session = test_session("session-1");
+        session.group_id = Some(group.id.clone());
+
+        db.save_group(&group).unwrap();
+        db.save_session(&session).unwrap();
+        db.delete_group(&group.id).unwrap();
+
+        assert!(db.get_groups().unwrap().is_empty());
+        let sessions = db.get_sessions().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].group_id, None);
     }
 }

@@ -185,6 +185,17 @@ async fn ssh_disconnect(
         .map_err(|e| e.to_string())
 }
 
+/// Release resources of channels whose reader thread already detected
+/// EOF/error. The frontend calls this on every `pty_closed` event so dead
+/// sessions don't linger until the next connect.
+#[tauri::command]
+async fn ssh_cleanup_dead(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.ssh.cleanup_dead_channels())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Remove a stored host key after a HostKeyMismatch (e.g. the server was
 /// legitimately reinstalled). Returns true if an entry was removed.
 #[tauri::command]
@@ -233,6 +244,7 @@ pub fn run() {
             ssh_send,
             ssh_resize,
             ssh_disconnect,
+            ssh_cleanup_dead,
             forget_host_key,
         ])
         .run(tauri::generate_context!())
