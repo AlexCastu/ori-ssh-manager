@@ -1,0 +1,10 @@
+# Normaliza finales de línea: LF en repo y en working tree (mac + Windows)
+* text=auto eol=lf
+
+# Binarios: nunca tocar
+*.png binary
+*.ico binary
+*.icns binary
+*.svg text
+*.jpg binary
+*.gif binary

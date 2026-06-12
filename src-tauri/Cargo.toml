@@ -1,6 +1,6 @@
 [package]
 name = "ori-sshmanager"
-version = "1.1.1"
+version = "1.2.0"
 description = "ORI-SSHManager - Desktop SSH Session Manager"
 authors = ["You"]
 license = "MIT"
@@ -19,7 +19,7 @@ tauri-build = { version = "2.5.3", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.9.5", features = ["macos-private-api"] }
+tauri = { version = "2.9.5", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-window-state = "2"
 chrono = "0.4"
@@ -29,10 +29,25 @@ dirs = "6"
 rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
 uuid = { version = "1.0", features = ["v4"] }
 thiserror = "2"
-# vendored-openssl: compila OpenSSL para la arquitectura objetivo (necesario
-# para cross-compilar x86_64 desde runners ARM; en Windows se usa WinCNG)
-ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 aes-gcm = { version = "0.10", features = ["std"] }
 base64 = "0.22"
 rand_core = "0.6"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
+zeroize = "1"
+# Espera por legibilidad del socket (sustituye bucles de sleep en hilos SSH)
+polling = "3"
+
+# vendored-openssl: compila OpenSSL para la arquitectura objetivo (necesario
+# para cross-compilar x86_64 desde runners ARM). Windows usa WinCNG, no lo
+# necesita, y así su build es más rápida y el binario menor.
+[target.'cfg(not(windows))'.dependencies]
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+
+[target.'cfg(windows)'.dependencies]
+ssh2 = "0.9"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

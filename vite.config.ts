@@ -9,6 +9,10 @@ export default defineConfig({
     strictPort: true,
   },
   build: {
+    // El webview de Tauri es conocido: WebView2 (Chromium moderno) en Windows,
+    // WKWebView en macOS. Apuntar al motor real evita transpilación y
+    // polyfills innecesarios → bundle menor y arranque más rápido.
+    target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
