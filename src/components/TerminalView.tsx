@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { X, Circle, RefreshCw, StopCircle, Copy, ClipboardList, Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 import { useTerminal } from '../hooks/useTerminal';
 import { sshService } from '../hooks/sshService';
@@ -22,7 +23,17 @@ function trimBuffer(buffer: string, maxSize: number): string {
 }
 
 export function TerminalView({ tabId }: TerminalViewProps) {
-  const { tabs, sessions, closeTab, updateTabStatus, settings, addToast, terminalZoom } = useStore();
+  const { tabs, sessions, closeTab, updateTabStatus, settings, addToast, terminalZoom } = useStore(
+    useShallow((s) => ({
+      tabs: s.tabs,
+      sessions: s.sessions,
+      closeTab: s.closeTab,
+      updateTabStatus: s.updateTabStatus,
+      settings: s.settings,
+      addToast: s.addToast,
+      terminalZoom: s.terminalZoom,
+    }))
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const currentChannelRef = useRef<string | null>(null);
   const bufferRef = useRef('');

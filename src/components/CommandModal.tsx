@@ -1,10 +1,19 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Code } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 
 export function CommandModal() {
-  const { commandModal, closeCommandModal, addCommand, updateCommand, activeSessionId } = useStore();
+  const { commandModal, closeCommandModal, addCommand, updateCommand, activeSessionId } = useStore(
+    useShallow((s) => ({
+      commandModal: s.commandModal,
+      closeCommandModal: s.closeCommandModal,
+      addCommand: s.addCommand,
+      updateCommand: s.updateCommand,
+      activeSessionId: s.activeSessionId,
+    }))
+  );
 
   const [name, setName] = useState('');
   const [command, setCommand] = useState('');

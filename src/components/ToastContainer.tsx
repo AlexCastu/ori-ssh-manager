@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 
 const icons = {
@@ -20,7 +21,9 @@ const colors = {
 };
 
 export function ToastContainer() {
-  const { toasts, removeToast } = useStore();
+  const { toasts, removeToast } = useStore(
+    useShallow((s) => ({ toasts: s.toasts, removeToast: s.removeToast }))
+  );
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Terminal } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from './store/useStore';
 import { useTheme } from './contexts/ThemeContext';
 import { sshService } from './hooks/sshService';
@@ -16,7 +17,16 @@ import {
 import { SettingsModal } from './components/SettingsModal';
 
 function App() {
-  const { isInitialized, initialize, tabs, activeTabId } = useStore();
+  // Selector con useShallow: el componente solo re-renderiza si cambian
+  // estos campos, no con cada actualización global del store
+  const { isInitialized, initialize, tabs, activeTabId } = useStore(
+    useShallow((s) => ({
+      isInitialized: s.isInitialized,
+      initialize: s.initialize,
+      tabs: s.tabs,
+      activeTabId: s.activeTabId,
+    }))
+  );
   const { isDark } = useTheme();
 
   useEffect(() => {
@@ -48,10 +58,12 @@ function App() {
       <TitleBar />
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <Sidebar />
+        {/* CommandPanel queda FUERA de esta columna: si estuviera dentro,
+            la aparición del TabBar al abrir la primera pestaña lo desplazaría
+            hacia abajo */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
           <TabBar />
-          <div className="flex-1 flex min-h-0 overflow-hidden">
-            <div className="flex-1 min-w-0 min-h-0 h-full overflow-hidden">
+          <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
               {activeTab ? (
                 <TerminalView key={activeTab.id} tabId={activeTab.id} />
               ) : (
@@ -73,10 +85,9 @@ function App() {
                   </div>
                 </div>
               )}
-            </div>
-            <CommandPanel />
           </div>
         </div>
+        <CommandPanel />
       </div>
       <SessionModal />
       <CommandModal />

@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Monitor, Moon, Sun, Palette, Laptop, Type, TerminalSquare, History } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../contexts/ThemeContext';
 import type { TerminalTheme, AppTheme, TerminalFontSize, TerminalCursorStyle, TerminalScrollback } from '../types';
@@ -74,7 +75,14 @@ const scrollbackOptions: { id: TerminalScrollback; name: string; description: st
 ];
 
 export function SettingsModal() {
-  const { settingsModal, closeSettingsModal, settings, updateSettings } = useStore();
+  const { settingsModal, closeSettingsModal, settings, updateSettings } = useStore(
+    useShallow((s) => ({
+      settingsModal: s.settingsModal,
+      closeSettingsModal: s.closeSettingsModal,
+      settings: s.settings,
+      updateSettings: s.updateSettings,
+    }))
+  );
   const { isDark } = useTheme();
 
 

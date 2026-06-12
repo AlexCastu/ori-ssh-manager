@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { CanvasAddon } from '@xterm/addon-canvas';
 import '@xterm/xterm/css/xterm.css';
 
 // Highlight matches while searching (Ctrl/Cmd+F)
@@ -123,9 +124,19 @@ export function useTerminal(options: UseTerminalOptions = {}) {
 
     terminal.open(container);
 
-    // GPU-accelerated renderer; falls back to DOM if WebGL is unavailable.
+    // Renderer en cascada: WebGL (GPU) → Canvas 2D → DOM. En Windows bajo
+    // RDP, VMs o GPUs antiguas WebGL no está disponible y el renderer DOM es
+    // muy lento; el canvas mantiene el rendimiento en esos casos.
     // Disposal is guarded: context-loss events can fire after dispose when
     // terminals are created/destroyed on tab switches.
+    const loadCanvasFallback = () => {
+      try {
+        terminal.loadAddon(new CanvasAddon());
+        console.warn('WebGL unavailable, using canvas renderer');
+      } catch (e) {
+        console.warn('Canvas renderer unavailable, using DOM renderer', e);
+      }
+    };
     let webglAddon: WebglAddon | null = null;
     const disposeWebgl = () => {
       const addon = webglAddon;
@@ -140,11 +151,14 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     };
     try {
       const addon = new WebglAddon();
-      addon.onContextLoss(() => disposeWebgl());
+      addon.onContextLoss(() => {
+        disposeWebgl();
+        loadCanvasFallback();
+      });
       terminal.loadAddon(addon);
       webglAddon = addon;
-    } catch (e) {
-      console.warn('WebGL renderer unavailable, using DOM renderer', e);
+    } catch {
+      loadCanvasFallback();
     }
 
     fitAddon.fit();

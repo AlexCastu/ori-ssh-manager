@@ -135,7 +135,7 @@ export interface SessionGroupsSlice {
   loadGroups: () => Promise<void>;
   addGroup: (group: Omit<SessionGroup, 'id' | 'order'>) => string;
   updateGroup: (id: string, group: Partial<SessionGroup>) => void;
-  deleteGroup: (id: string) => void;
+  deleteGroup: (id: string) => Promise<void>;
   toggleGroupExpanded: (id: string) => void;
   reorderSessions: (groupId: string | null, sessionIds: string[]) => void;
 }

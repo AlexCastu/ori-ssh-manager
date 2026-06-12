@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Server, Key, Globe, FileKey, KeyRound, Plus, Trash2 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 import type { SessionColor, AuthMethod, JumpHop } from '../types';
 
@@ -36,7 +37,14 @@ const colors: { value: SessionColor; label: string; class: string }[] = [
 ];
 
 export function SessionModal() {
-  const { sessionModal, closeSessionModal, addSession, updateSession } = useStore();
+  const { sessionModal, closeSessionModal, addSession, updateSession } = useStore(
+    useShallow((s) => ({
+      sessionModal: s.sessionModal,
+      closeSessionModal: s.closeSessionModal,
+      addSession: s.addSession,
+      updateSession: s.updateSession,
+    }))
+  );
 
   const isEdit = sessionModal.data?.mode === 'edit';
   const existingSession = sessionModal.data?.session;

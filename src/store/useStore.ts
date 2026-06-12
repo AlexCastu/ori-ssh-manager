@@ -168,6 +168,7 @@ export const useStore = create<AppStore>()(
       set((state) => ({
         sessions: state.sessions.filter((s) => s.id !== id),
         activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
+        commands: state.commands.filter((command) => command.sessionId !== id),
       }));
       get().addToast({
         type: 'success',
@@ -431,8 +432,7 @@ export const useStore = create<AppStore>()(
   },
 
   // ==================== SESSION GROUPS ====================
-  // Groups live in SQLite (like the sessions that reference them). Local
-  // state updates optimistically; persistence failures only log.
+  // Groups live in SQLite (like the sessions that reference them).
   loadGroups: async () => {
     try {
       let groups = await invoke<SessionGroup[]>('get_groups');
@@ -477,18 +477,32 @@ export const useStore = create<AppStore>()(
     }
   },
 
-  deleteGroup: (id) => {
-    // Cuando eliminamos un grupo, las sesiones de ese grupo quedan sin grupo
-    set((state) => ({
-      groups: state.groups.filter((g) => g.id !== id),
-      sessions: state.sessions.map((s) =>
-        s.groupId === id ? { ...s, groupId: null } : s
-      ),
-    }));
-    // Backend also sets group_id = NULL on the group's sessions
-    invoke('delete_group', { id }).catch((error) =>
-      console.error('Failed to delete group:', error)
-    );
+  deleteGroup: async (id) => {
+    const group = get().groups.find((g) => g.id === id);
+    if (!group) return;
+
+    try {
+      await invoke('delete_group', { id });
+      set((state) => ({
+        groups: state.groups.filter((g) => g.id !== id),
+        sessions: state.sessions.map((s) =>
+          s.groupId === id ? { ...s, groupId: null } : s
+        ),
+      }));
+      get().addToast({
+        type: 'success',
+        title: 'Group Deleted',
+        message: `Group "${group.name}" has been removed`,
+      });
+    } catch (error) {
+      console.error('Failed to delete group:', error);
+      get().addToast({
+        type: 'error',
+        title: 'Error',
+        message: 'Failed to delete group',
+      });
+      throw error;
+    }
   },
 
   toggleGroupExpanded: (id) => {

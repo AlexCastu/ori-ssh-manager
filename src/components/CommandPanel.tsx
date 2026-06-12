@@ -14,6 +14,7 @@ import {
   ZoomOut,
   RotateCcw,
 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 import { sshService } from '../hooks/sshService';
 import type { SavedCommand } from '../types';
@@ -43,7 +44,19 @@ export function CommandPanel() {
     toggleCommandPanel,
     terminalZoom,
     setTerminalZoom,
-  } = useStore();
+  } = useStore(
+    useShallow((s) => ({
+      commands: s.commands,
+      tabs: s.tabs,
+      activeTabId: s.activeTabId,
+      deleteCommand: s.deleteCommand,
+      openCommandModal: s.openCommandModal,
+      commandPanelCollapsed: s.commandPanelCollapsed,
+      toggleCommandPanel: s.toggleCommandPanel,
+      terminalZoom: s.terminalZoom,
+      setTerminalZoom: s.setTerminalZoom,
+    }))
+  );
   const [quickExpanded, setQuickExpanded] = useState(true);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -72,7 +85,7 @@ export function CommandPanel() {
   // Collapsed state - just show expand button
   if (commandPanelCollapsed) {
     return (
-      <div className="w-10 bg-white/70 dark:bg-zinc-900/50 backdrop-blur-xl border-l border-zinc-200 dark:border-white/5 flex flex-col items-center py-2 gap-2">
+      <div className="w-10 shrink-0 bg-white/70 dark:bg-zinc-900/50 backdrop-blur-xl border-l border-zinc-200 dark:border-white/5 flex flex-col items-center py-2 gap-2">
         <button
           onClick={toggleCommandPanel}
           className="p-2 rounded-lg hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
@@ -110,7 +123,7 @@ export function CommandPanel() {
   }
 
   return (
-    <div className="w-56 bg-white/70 dark:bg-zinc-900/50 backdrop-blur-xl border-l border-zinc-200 dark:border-white/5 flex flex-col">
+    <div className="w-56 shrink-0 bg-white/70 dark:bg-zinc-900/50 backdrop-blur-xl border-l border-zinc-200 dark:border-white/5 flex flex-col">
       {/* Header with collapse button */}
       <div className="p-2 border-b border-zinc-200 dark:border-white/5 flex items-center justify-between">
         <div className="flex items-center gap-2">

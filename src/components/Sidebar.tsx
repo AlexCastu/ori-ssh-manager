@@ -17,7 +17,9 @@ import {
   Search,
   X,
 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
+import { AnchoredMenu } from './AnchoredMenu';
 import type { Session, SessionGroup, SessionColor } from '../types';
 import { parseSessionsFile } from '../utils/sessionImport';
 
@@ -37,6 +39,82 @@ const allColors: SessionColor[] = ['blue', 'green', 'purple', 'orange', 'red', '
 const SESSION_DRAG_MIME = 'application/x-ori-session-id';
 
 const getColor = (color: SessionColor) => colorConfig[color] || colorConfig.blue;
+
+type DeleteTarget =
+  | { type: 'session'; session: Session }
+  | { type: 'group'; group: SessionGroup }
+  | null;
+
+function DeleteConfirmationDialog({
+  target,
+  isDeleting,
+  onCancel,
+  onConfirm,
+}: {
+  target: DeleteTarget;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!target) return null;
+
+  const isGroup = target.type === 'group';
+  const name = isGroup ? target.group.name : target.session.name;
+  const description = isGroup
+    ? `Delete "${name}"? Sessions in this group will be moved to Ungrouped.`
+    : `Delete "${name}"? This removes the saved SSH session.`;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50"
+        onClick={onCancel}
+        aria-label="Cancel delete"
+        disabled={isDeleting}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-confirm-title"
+        className="relative w-full max-w-sm rounded-lg border border-zinc-300 bg-white p-4 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+      >
+        <div className="mb-4 flex items-start gap-3">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-red-500/10 text-red-600 dark:text-red-400">
+            <Trash2 className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 id="delete-confirm-title" className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              {isGroup ? 'Delete group' : 'Delete session'}
+            </h2>
+            <p className="mt-1 text-sm leading-5 text-zinc-600 dark:text-zinc-400">
+              {description}
+            </p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isDeleting}
+            className="rounded-md px-3 py-1.5 text-sm text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isDeleting}
+            className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            <Trash2 className="h-4 w-4" />
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Session Item Component
 function SessionItem({
@@ -60,7 +138,7 @@ function SessionItem({
   onDragStart: (e: React.DragEvent, sessionId: string) => void;
   onDragEnd: () => void;
 }) {
-  const [showMenu, setShowMenu] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   const colors = getColor(session.color);
   const tooltip = `${session.username}@${session.host}${
     session.jumpHops?.length
@@ -106,7 +184,7 @@ function SessionItem({
       {/* Actions: connect on hover, rest behind dots menu */}
       <div
         className={`flex items-center gap-0.5 transition-opacity ${
-          showMenu ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          menuAnchor ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
         }`}
       >
         <button
@@ -126,7 +204,7 @@ function SessionItem({
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
-            setShowMenu(!showMenu);
+            setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect());
           }}
           className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors cursor-pointer"
           title="More actions"
@@ -135,42 +213,33 @@ function SessionItem({
         </button>
       </div>
 
-      {showMenu && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
+      {menuAnchor && (
+        <AnchoredMenu anchor={menuAnchor} onClose={() => setMenuAnchor(null)}>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              setShowMenu(false);
+              onEdit();
+              setMenuAnchor(null);
             }}
-          />
-          <div className="absolute right-0 top-full mt-1 z-50 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg shadow-xl py-1 min-w-[120px]">
-            <button
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit();
-                setShowMenu(false);
-              }}
-              className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
-            >
-              <Edit2 className="w-3.5 h-3.5" />
-              Edit
-            </button>
-            <button
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-                setShowMenu(false);
-              }}
-              className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 flex items-center gap-2"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete
-            </button>
-          </div>
-        </>
+            className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+            Edit
+          </button>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+              setMenuAnchor(null);
+            }}
+            className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 flex items-center gap-2"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete
+          </button>
+        </AnchoredMenu>
       )}
     </div>
   );
@@ -184,41 +253,43 @@ function ColorPicker({
   selectedColor: SessionColor;
   onSelect: (color: SessionColor) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
 
   return (
     <div className="relative">
       <button
         onClick={(e) => {
           e.stopPropagation();
-          setIsOpen(!isOpen);
+          setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect());
         }}
         className={`w-4 h-4 rounded-full ${colorConfig[selectedColor].dot} hover:ring-2 hover:ring-zinc-900/30 dark:hover:ring-white/30 transition-all`}
         title="Change color"
       />
 
-      {isOpen && (
-        <>
-          <div className="fixed inset-0 z-50" onClick={() => setIsOpen(false)} />
-          <div className="absolute left-0 top-6 z-50 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg shadow-xl p-2">
-            <div className="grid grid-cols-4 gap-1.5">
-              {allColors.map((color) => (
-                <button
-                  key={color}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelect(color);
-                    setIsOpen(false);
-                  }}
-                  className={`w-5 h-5 rounded-full ${colorConfig[color].dot} hover:scale-110 transition-transform ${
-                    selectedColor === color ? 'ring-2 ring-zinc-900 dark:ring-white ring-offset-1 ring-offset-white dark:ring-offset-zinc-800' : ''
-                  }`}
-                  title={color}
-                />
-              ))}
-            </div>
+      {menuAnchor && (
+        <AnchoredMenu
+          anchor={menuAnchor}
+          align="left"
+          className="p-2"
+          onClose={() => setMenuAnchor(null)}
+        >
+          <div className="grid grid-cols-4 gap-1.5">
+            {allColors.map((color) => (
+              <button
+                key={color}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect(color);
+                  setMenuAnchor(null);
+                }}
+                className={`w-5 h-5 rounded-full ${colorConfig[color].dot} hover:scale-110 transition-transform ${
+                  selectedColor === color ? 'ring-2 ring-zinc-900 dark:ring-white ring-offset-1 ring-offset-white dark:ring-offset-zinc-800' : ''
+                }`}
+                title={color}
+              />
+            ))}
           </div>
-        </>
+        </AnchoredMenu>
       )}
     </div>
   );
@@ -264,7 +335,7 @@ function GroupSection({
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, groupId: string) => void;
 }) {
-  const [showMenu, setShowMenu] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   const colors = getColor(group.color);
   const groupSessions = sessions.filter((s) => s.groupId === group.id);
   const isDragOver = dragOverGroupId === group.id;
@@ -338,7 +409,7 @@ function GroupSection({
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              setShowMenu(!showMenu);
+              setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect());
             }}
             className="p-1 rounded opacity-70 group-hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-all cursor-pointer"
             title="Group actions"
@@ -346,36 +417,33 @@ function GroupSection({
             <MoreVertical className="w-3.5 h-3.5" />
           </button>
 
-          {showMenu && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-full mt-1 z-50 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg shadow-xl py-1 min-w-[120px]">
-                <button
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEditGroup();
-                    setShowMenu(false);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                  Rename
-                </button>
-                <button
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteGroup();
-                    setShowMenu(false);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 flex items-center gap-2"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete
-                </button>
-              </div>
-            </>
+          {menuAnchor && (
+            <AnchoredMenu anchor={menuAnchor} onClose={() => setMenuAnchor(null)}>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditGroup();
+                  setMenuAnchor(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                Rename
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteGroup();
+                  setMenuAnchor(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 flex items-center gap-2"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete
+              </button>
+            </AnchoredMenu>
           )}
         </div>
       </div>
@@ -440,7 +508,27 @@ export function Sidebar() {
     deleteGroup,
     toggleGroupExpanded,
     updateSession,
-  } = useStore();
+  } = useStore(
+    useShallow((s) => ({
+      sessions: s.sessions,
+      groups: s.groups,
+      activeSessionId: s.activeSessionId,
+      setActiveSession: s.setActiveSession,
+      deleteSession: s.deleteSession,
+      sidebarCollapsed: s.sidebarCollapsed,
+      toggleSidebar: s.toggleSidebar,
+      openSessionModal: s.openSessionModal,
+      openSettingsModal: s.openSettingsModal,
+      createTab: s.createTab,
+      addSession: s.addSession,
+      addToast: s.addToast,
+      addGroup: s.addGroup,
+      updateGroup: s.updateGroup,
+      deleteGroup: s.deleteGroup,
+      toggleGroupExpanded: s.toggleGroupExpanded,
+      updateSession: s.updateSession,
+    }))
+  );
 
   const [isAddingGroup, setIsAddingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
@@ -450,6 +538,8 @@ export function Sidebar() {
   const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isImportingSessions, setIsImportingSessions] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   // Filter sessions based on search query
@@ -548,11 +638,9 @@ export function Sidebar() {
     openSessionModal({ session, mode: 'edit' });
   }, [openSessionModal]);
 
-  const handleDelete = useCallback(async (session: Session) => {
-    if (confirm(`Delete session "${session.name}"?`)) {
-      await deleteSession(session.id);
-    }
-  }, [deleteSession]);
+  const handleDelete = useCallback((session: Session) => {
+    setDeleteTarget({ type: 'session', session });
+  }, []);
 
   const handleAddGroup = useCallback(() => {
     if (newGroupName.trim()) {
@@ -575,10 +663,35 @@ export function Sidebar() {
   }, [editGroupName, updateGroup]);
 
   const handleDeleteGroup = useCallback((groupId: string) => {
-    if (confirm('Delete this group? Sessions will be moved to ungrouped.')) {
-      deleteGroup(groupId);
+    const group = groups.find((item) => item.id === groupId);
+    if (group) {
+      setDeleteTarget({ type: 'group', group });
     }
-  }, [deleteGroup]);
+  }, [groups]);
+
+  const handleCancelDelete = useCallback(() => {
+    if (!isDeleting) {
+      setDeleteTarget(null);
+    }
+  }, [isDeleting]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+
+    setIsDeleting(true);
+    try {
+      if (deleteTarget.type === 'session') {
+        await deleteSession(deleteTarget.session.id);
+      } else {
+        await deleteGroup(deleteTarget.group.id);
+      }
+      setDeleteTarget(null);
+    } catch {
+      // Store actions already show the specific error toast.
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [deleteGroup, deleteSession, deleteTarget]);
 
   const handleImportSessions = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -656,11 +769,12 @@ export function Sidebar() {
   }, [addGroup, addSession, addToast, groups]);
 
   return (
+    <>
     <motion.aside
       initial={false}
       animate={{ width: sidebarCollapsed ? 64 : 280 }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}
-      className="h-full bg-white/70 dark:bg-zinc-900/50 backdrop-blur-xl border-r border-zinc-200 dark:border-zinc-800/50 flex flex-col"
+      className="h-full shrink-0 bg-white/70 dark:bg-zinc-900/50 backdrop-blur-xl border-r border-zinc-200 dark:border-zinc-800/50 flex flex-col"
       onDragEnd={handleDragEnd}
     >
       {/* Header */}
@@ -946,5 +1060,12 @@ export function Sidebar() {
         </button>
       </div>
     </motion.aside>
+    <DeleteConfirmationDialog
+      target={deleteTarget}
+      isDeleting={isDeleting}
+      onCancel={handleCancelDelete}
+      onConfirm={handleConfirmDelete}
+    />
+    </>
   );
 }
