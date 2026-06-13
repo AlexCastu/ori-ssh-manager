@@ -44,10 +44,7 @@ async fn export_sessions_to_path(
     state: tauri::State<'_, Arc<AppState>>,
     path: String,
 ) -> Result<usize, String> {
-    let (json, count) = state
-        .db
-        .export_sessions_json()
-        .map_err(|e| e.to_string())?;
+    let (json, count) = state.db.export_sessions_json().map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| format!("No se pudo escribir el archivo: {e}"))?;
     Ok(count)
 }

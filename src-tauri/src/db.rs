@@ -751,8 +751,9 @@ impl Database {
 
         let group_names: HashMap<String, String> = {
             let mut stmt = conn.prepare("SELECT id, name FROM groups")?;
-            let rows = stmt
-                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
             rows.collect::<SqliteResult<_>>()?
         };
 
