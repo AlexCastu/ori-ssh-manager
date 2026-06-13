@@ -100,36 +100,40 @@ async fn ssh_connect(
     state: tauri::State<'_, Arc<AppState>>,
     params: ConnectParams,
 ) -> Result<String, String> {
-    // Blocking I/O (DB + TCP + handshake) runs on a dedicated thread, not the async runtime
-    let state = state.inner().clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        let session = state
+    // Only the DB read is blocking (rusqlite); the SSH stack is async (russh)
+    let db_state = state.inner().clone();
+    let session_id = params.session_id.clone();
+    let session = tauri::async_runtime::spawn_blocking(move || {
+        db_state
             .db
-            .get_session_secrets(&params.session_id)
-            .map_err(|e| ssh::SshError::SessionNotFound(format!("{}: {}", params.session_id, e)))?;
+            .get_session_secrets(&session_id)
+            .map_err(|e| ssh::SshError::SessionNotFound(format!("{}: {}", session_id, e)))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
 
-        log::info!(
-            "SSH Connect attempt: {}@{}:{} ({} hops, {}x{})",
-            session.username,
-            session.host,
-            session.port,
-            session.jump_hops.len(),
-            params.cols.unwrap_or(80),
-            params.rows.unwrap_or(24)
-        );
+    log::info!(
+        "SSH Connect attempt: {}@{}:{} ({} hops, {}x{})",
+        session.username,
+        session.host,
+        session.port,
+        session.jump_hops.len(),
+        params.cols.unwrap_or(80),
+        params.rows.unwrap_or(24)
+    );
 
-        state.ssh.connect(
+    match state
+        .ssh
+        .connect(
             &app,
             &session,
             params.progress_id.as_deref(),
             params.cols,
             params.rows,
         )
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-
-    match result {
+        .await
+    {
         Ok(channel_id) => {
             log::info!("SSH Connected successfully: {}", channel_id);
             Ok(channel_id)
@@ -149,10 +153,10 @@ async fn ssh_send(
 ) -> Result<(), String> {
     // Never log the data itself: it includes everything typed in the terminal
     log::trace!("ssh_send: channel={}, {} bytes", channel_id, data.len());
-    let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || state.ssh.send_command(&channel_id, &data))
+    state
+        .ssh
+        .send_command(&channel_id, &data)
         .await
-        .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
 
@@ -163,12 +167,10 @@ async fn ssh_resize(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    // Resize temporarily switches the session to blocking mode (up to the SSH
-    // timeout), so it must not run on the async runtime
-    let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || state.ssh.resize(&channel_id, cols, rows))
+    state
+        .ssh
+        .resize(&channel_id, cols, rows)
         .await
-        .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
 
@@ -177,23 +179,20 @@ async fn ssh_disconnect(
     state: tauri::State<'_, Arc<AppState>>,
     channel_id: String,
 ) -> Result<(), String> {
-    // wait_close() can block until the server acknowledges: keep it off the runtime
-    let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || state.ssh.disconnect(&channel_id))
+    state
+        .ssh
+        .disconnect(&channel_id)
         .await
-        .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
 
-/// Release resources of channels whose reader thread already detected
+/// Release resources of channels whose reader task already detected
 /// EOF/error. The frontend calls this on every `pty_closed` event so dead
 /// sessions don't linger until the next connect.
 #[tauri::command]
 async fn ssh_cleanup_dead(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
-    let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || state.ssh.cleanup_dead_channels())
-        .await
-        .map_err(|e| e.to_string())
+    state.ssh.cleanup_dead_channels();
+    Ok(())
 }
 
 /// Remove a stored host key after a HostKeyMismatch (e.g. the server was

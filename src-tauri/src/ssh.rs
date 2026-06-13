@@ -1,36 +1,41 @@
 //! SSH Connection module for SSH Manager
+//!
+//! Backend SSH en Rust puro (russh): sin libssh2 ni OpenSSL. Toda la pila es
+//! async sobre tokio; los túneles multi-hop usan el canal direct-tcpip como
+//! stream directamente (sin puente loopback local).
 
 use crate::db::{JumpHop, Session as SessionConfig};
-use polling::{Event, Events, Poller};
-use ssh2::{Channel, CheckResult, KnownHostFileKind, KnownHostKeyFormat, Session as SshSession};
+use russh::client::{self, Handle};
+use russh::keys::agent::client::{AgentClient, AgentStream};
+use russh::keys::agent::AgentIdentity;
+use russh::keys::known_hosts::{check_known_hosts_path, learn_known_hosts_path};
+use russh::keys::{load_secret_key, PrivateKeyWithHashAlg, PublicKey};
+use russh::{ChannelMsg, ChannelWriteHalf, Disconnect};
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::Emitter;
 use thiserror::Error;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 // Tuning constants
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const SSH_BLOCKING_TIMEOUT_MS: u32 = 15_000;
-// Idle threads block on socket readability instead of spinning; the timeout
-// only bounds how often housekeeping (keepalive, running flag) runs
-const SOCKET_WAIT_TIMEOUT: Duration = Duration::from_millis(500);
-// Fallback when no poller is available (socket clone failed): old behavior
-const FALLBACK_POLL_INTERVAL: Duration = Duration::from_millis(5);
-const WRITE_RETRY_INTERVAL: Duration = Duration::from_millis(2);
-const READ_BUFFER_SIZE: usize = 16384;
-// Coalesce PTY output: emit one IPC event per batch instead of per read
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+// Coalesce PTY output: emit one IPC event per batch instead of per message.
+// With data pending, wait this long for more before flushing (echo latency cap)
+const FLUSH_INTERVAL: Duration = Duration::from_millis(4);
 const FLUSH_THRESHOLD: usize = 32 * 1024;
-const FLUSH_INTERVAL: Duration = Duration::from_millis(16);
-// Keepalive: detect dead connections and keep NAT mappings alive
-const KEEPALIVE_INTERVAL_SECS: u32 = 30;
-const KEEPALIVE_SEND_INTERVAL: Duration = Duration::from_secs(15);
+// With nothing pending the reader just parks on the channel
+const IDLE_WAIT: Duration = Duration::from_secs(60);
+// Graceful close must not hang the disconnect command on a dead network
+const DISCONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+// Keepalive: detect dead connections and keep NAT mappings alive (handled by
+// russh's session task; keepalive_max unanswered probes close the connection)
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
+const KEEPALIVE_MAX: usize = 4;
 
 #[derive(Error, Debug)]
 pub enum SshError {
@@ -42,28 +47,29 @@ pub enum SshError {
     ChannelError(String),
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    #[error("SSH2 error: {0}")]
-    Ssh2Error(#[from] ssh2::Error),
+    #[error("SSH error: {0}")]
+    Protocol(#[from] russh::Error),
+    #[error("SSH key error: {0}")]
+    KeyError(#[from] russh::keys::Error),
     #[error("Session not found: {0}")]
     SessionNotFound(String),
     #[error("Host key verification failed: {0}")]
     HostKeyMismatch(String),
 }
 
-pub(crate) struct SshChannelInner {
-    pub(crate) session: SshSession,
-    pub(crate) channel: Channel,
-}
-
-pub struct SshChannel {
+/// Everything a live terminal needs: the write half feeds keystrokes/resizes,
+/// the handles keep the SSH session (and every jump hop's session) alive.
+struct ChannelEntry {
+    write: ChannelWriteHalf<client::Msg>,
+    handle: Handle<TofuHandler>,
+    // Dropping a hop handle tears its session down, so they live here
     #[allow(dead_code)]
-    pub id: String,
-    pub(crate) inner: Arc<Mutex<SshChannelInner>>,
-    running: Arc<AtomicBool>,
+    hop_handles: Vec<Handle<TofuHandler>>,
+    close_notify: Arc<Notify>,
 }
 
 pub struct SshManager {
-    pub(crate) channels: Mutex<HashMap<String, SshChannel>>,
+    channels: Mutex<HashMap<String, Arc<ChannelEntry>>>,
     dead_channels: Arc<Mutex<Vec<String>>>,
 }
 
@@ -80,118 +86,28 @@ fn expand_tilde(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-/// TCP connect with explicit timeout (resolves DNS, tries every address)
-fn tcp_connect(host: &str, port: u16) -> Result<TcpStream, SshError> {
-    let addrs: Vec<_> = (host, port)
-        .to_socket_addrs()
-        .map_err(|e| SshError::ConnectionFailed(format!("DNS resolve '{}': {}", host, e)))?
-        .collect();
-
-    if addrs.is_empty() {
-        return Err(SshError::ConnectionFailed(format!(
-            "DNS resolve '{}': no addresses found",
-            host
-        )));
-    }
-
-    let mut last_err = None;
-    for addr in addrs {
-        match TcpStream::connect_timeout(&addr, TCP_CONNECT_TIMEOUT) {
-            Ok(stream) => {
-                stream.set_nodelay(true).ok();
-                return Ok(stream);
-            }
-            Err(e) => last_err = Some(e),
-        }
-    }
-    Err(SshError::ConnectionFailed(
-        last_err
-            .map(|e| e.to_string())
-            .unwrap_or_else(|| "unreachable".into()),
-    ))
+/// Shared client config: russh sends keepalives and closes the connection
+/// after KEEPALIVE_MAX unanswered probes
+fn client_config() -> Arc<client::Config> {
+    Arc::new(client::Config {
+        keepalive_interval: Some(KEEPALIVE_INTERVAL),
+        keepalive_max: KEEPALIVE_MAX,
+        nodelay: true,
+        ..Default::default()
+    })
 }
 
-/// Blocks the calling thread until one of the watched sockets is readable (or
-/// the timeout expires). Replaces fixed-interval sleep polling: idle SSH
-/// threads now consume ~0% CPU. Falls back to a short sleep if the OS poller
-/// cannot be set up.
-struct ReadWaiter {
-    sockets: Vec<TcpStream>,
-    poller: Option<Poller>,
-    events: Events,
-}
-
-impl ReadWaiter {
-    fn new(sockets: Vec<TcpStream>) -> Self {
-        let poller = if sockets.is_empty() {
-            None
-        } else {
-            Poller::new().ok().and_then(|p| {
-                for (i, socket) in sockets.iter().enumerate() {
-                    // SAFETY: the sockets live in this struct for the whole
-                    // lifetime of the poller (deleted on Drop)
-                    unsafe { p.add(socket, Event::readable(i)) }.ok()?;
-                }
-                Some(p)
-            })
-        };
-        ReadWaiter {
-            sockets,
-            poller,
-            events: Events::new(),
-        }
-    }
-
-    fn wait(&mut self, timeout: Duration) {
-        match &self.poller {
-            Some(poller) => {
-                self.events.clear();
-                let _ = poller.wait(&mut self.events, Some(timeout));
-                // Events are oneshot: re-arm every socket for the next wait
-                for (i, socket) in self.sockets.iter().enumerate() {
-                    let _ = poller.modify(socket, Event::readable(i));
-                }
-            }
-            None => thread::sleep(FALLBACK_POLL_INTERVAL),
-        }
-    }
-}
-
-impl Drop for ReadWaiter {
-    fn drop(&mut self) {
-        if let Some(poller) = &self.poller {
-            for socket in &self.sockets {
-                let _ = poller.delete(socket);
-            }
-        }
-    }
-}
-
-/// Write a full buffer retrying on WouldBlock (needed on non-blocking sessions).
-/// First retries yield the CPU quantum instead of sleeping: on Windows,
-/// thread::sleep rounds up to the ~15 ms timer granularity, which would
-/// throttle large pastes/transfers badly.
-fn write_full<W: Write>(writer: &mut W, mut data: &[u8]) -> std::io::Result<()> {
-    let mut spins = 0u32;
-    while !data.is_empty() {
-        match writer.write(data) {
-            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
-            Ok(n) => {
-                data = &data[n..];
-                spins = 0;
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                if spins < 64 {
-                    spins += 1;
-                    thread::yield_now();
-                } else {
-                    thread::sleep(WRITE_RETRY_INTERVAL);
-                }
-            }
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(())
+/// TCP connect with explicit timeout (DNS resolution included)
+async fn tcp_connect(host: &str, port: u16) -> Result<tokio::net::TcpStream, SshError> {
+    let stream = tokio::time::timeout(
+        TCP_CONNECT_TIMEOUT,
+        tokio::net::TcpStream::connect((host, port)),
+    )
+    .await
+    .map_err(|_| SshError::ConnectionFailed(format!("{}:{}: connect timeout", host, port)))?
+    .map_err(|e| SshError::ConnectionFailed(format!("{}:{}: {}", host, port, e)))?;
+    stream.set_nodelay(true).ok();
+    Ok(stream)
 }
 
 /// Take the longest valid UTF-8 prefix from `pending` as a String, keeping an
@@ -319,59 +235,85 @@ pub fn forget_host_key(host: &str, port: u16) -> Result<bool, SshError> {
 
 /// Verify the server host key against the app's known_hosts (TOFU:
 /// first connection stores the key; a later mismatch aborts the connection)
-fn verify_host_key(session: &SshSession, host: &str, port: u16) -> Result<(), SshError> {
-    let (key, key_type) = session
-        .host_key()
-        .ok_or_else(|| SshError::HostKeyMismatch("Server did not provide a host key".into()))?;
-
-    let mut known_hosts = session.known_hosts()?;
+fn verify_host_key_tofu(host: &str, port: u16, key: &PublicKey) -> Result<bool, SshError> {
     let file = known_hosts_path();
-    if file.exists() {
-        known_hosts
-            .read_file(&file, KnownHostFileKind::OpenSSH)
-            .map_err(|e| SshError::HostKeyMismatch(format!("Cannot read known_hosts: {}", e)))?;
-    }
-
-    match known_hosts.check_port(host, port, key) {
-        CheckResult::Match => Ok(()),
-        CheckResult::NotFound => {
+    match check_known_hosts_path(host, port, key, &file) {
+        Ok(true) => Ok(true),
+        Ok(false) => {
             // Trust on first use: persist the key for future checks
-            let key_format: KnownHostKeyFormat = key_type.into();
-            let host_entry = known_hosts_entry(host, port);
-            known_hosts.add(&host_entry, key, "added by ORI-SSHManager", key_format)?;
-            known_hosts
-                .write_file(&file, KnownHostFileKind::OpenSSH)
-                .map_err(|e| {
-                    SshError::HostKeyMismatch(format!("Cannot save known_hosts: {}", e))
-                })?;
-            log::info!("Host key for {} stored (trust on first use)", host_entry);
-            Ok(())
+            learn_known_hosts_path(host, port, key, &file).map_err(|e| {
+                SshError::HostKeyMismatch(format!("Cannot save known_hosts: {}", e))
+            })?;
+            log::info!(
+                "Host key for {} stored (trust on first use)",
+                known_hosts_entry(host, port)
+            );
+            Ok(true)
         }
-        CheckResult::Mismatch => Err(SshError::HostKeyMismatch(format!(
+        Err(russh::keys::Error::KeyChanged { .. }) => Err(SshError::HostKeyMismatch(format!(
             "Host key for {}:{} CHANGED. Possible man-in-the-middle attack. \
              If the server was legitimately reinstalled, remove its entry from {}",
             host,
             port,
             file.display()
         ))),
-        CheckResult::Failure => Err(SshError::HostKeyMismatch(format!(
-            "Could not verify host key for {}:{}",
-            host, port
+        Err(e) => Err(SshError::HostKeyMismatch(format!(
+            "Could not verify host key for {}:{}: {}",
+            host, port, e
         ))),
     }
 }
 
+/// russh handler: its only job is host key verification (TOFU) against the
+/// logical host/port this session targets (even when tunneled through hops)
+struct TofuHandler {
+    host: String,
+    port: u16,
+}
+
+impl client::Handler for TofuHandler {
+    type Error = SshError;
+
+    async fn check_server_key(&mut self, server_public_key: &PublicKey) -> Result<bool, SshError> {
+        verify_host_key_tofu(&self.host, self.port, server_public_key)
+    }
+}
+
+/// Connect to the platform's SSH agent (SSH_AUTH_SOCK on unix; the OpenSSH
+/// named pipe or Pageant on Windows)
+#[cfg(unix)]
+async fn connect_agent(
+) -> Result<AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>, SshError> {
+    AgentClient::connect_env()
+        .await
+        .map(|c| c.dynamic())
+        .map_err(|e| SshError::AuthFailed(format!("SSH agent: {}", e)))
+}
+
+#[cfg(windows)]
+async fn connect_agent(
+) -> Result<AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>, SshError> {
+    const OPENSSH_AGENT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
+    if let Ok(client) = AgentClient::connect_named_pipe(OPENSSH_AGENT_PIPE).await {
+        return Ok(client.dynamic());
+    }
+    AgentClient::connect_pageant()
+        .await
+        .map(|c| c.dynamic())
+        .map_err(|e| SshError::AuthFailed(format!("SSH agent: {}", e)))
+}
+
 /// Authenticate an SSH session by password, private key (with ~ expansion)
 /// or the running ssh-agent
-fn authenticate(
-    session: &SshSession,
+async fn authenticate(
+    handle: &mut Handle<TofuHandler>,
     username: &str,
     auth_method: &str,
     password: Option<&str>,
     private_key_path: Option<&str>,
     private_key_passphrase: Option<&str>,
 ) -> Result<(), SshError> {
-    match auth_method {
+    let result = match auth_method {
         "key" => {
             let raw_path = private_key_path
                 .ok_or_else(|| SshError::AuthFailed("No private key path provided".to_string()))?;
@@ -384,24 +326,64 @@ fn authenticate(
                 )));
             }
 
-            session
-                .userauth_pubkey_file(username, None, &key_path, private_key_passphrase)
-                .map_err(|e| SshError::AuthFailed(format!("Key auth failed: {}", e)))?;
+            let key = load_secret_key(&key_path, private_key_passphrase)
+                .map_err(|e| SshError::AuthFailed(format!("Cannot load key: {}", e)))?;
+            let hash_alg = handle.best_supported_rsa_hash().await?.flatten();
+            handle
+                .authenticate_publickey(
+                    username,
+                    PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
+                )
+                .await
+                .map_err(|e| SshError::AuthFailed(format!("Key auth failed: {}", e)))?
         }
         "agent" => {
-            session
-                .userauth_agent(username)
-                .map_err(|e| SshError::AuthFailed(format!("SSH agent auth failed: {}", e)))?;
+            let mut agent = connect_agent().await?;
+            let identities = agent
+                .request_identities()
+                .await
+                .map_err(|e| SshError::AuthFailed(format!("SSH agent: {}", e)))?;
+            let keys: Vec<PublicKey> = identities
+                .into_iter()
+                .filter_map(|id| match id {
+                    AgentIdentity::PublicKey { key, .. } => Some(key),
+                    _ => None,
+                })
+                .collect();
+            if keys.is_empty() {
+                return Err(SshError::AuthFailed(
+                    "SSH agent has no identities loaded".to_string(),
+                ));
+            }
+            let hash_alg = handle.best_supported_rsa_hash().await?.flatten();
+            let mut accepted = false;
+            for key in keys {
+                let result = handle
+                    .authenticate_publickey_with(username, key, hash_alg, &mut agent)
+                    .await
+                    .map_err(|e| SshError::AuthFailed(format!("SSH agent auth failed: {}", e)))?;
+                if result.success() {
+                    accepted = true;
+                    break;
+                }
+            }
+            if !accepted {
+                return Err(SshError::AuthFailed(
+                    "SSH agent auth failed: no identity accepted by server".to_string(),
+                ));
+            }
+            return Ok(());
         }
         _ => {
             let pwd = password.unwrap_or("");
-            session
-                .userauth_password(username, pwd)
-                .map_err(|e| SshError::AuthFailed(e.to_string()))?;
+            handle
+                .authenticate_password(username, pwd)
+                .await
+                .map_err(|e| SshError::AuthFailed(e.to_string()))?
         }
-    }
+    };
 
-    if !session.authenticated() {
+    if !result.success() {
         return Err(SshError::AuthFailed(
             "Authentication rejected by server".to_string(),
         ));
@@ -409,117 +391,45 @@ fn authenticate(
     Ok(())
 }
 
-/// Bridge a local TCP stream and an SSH direct-tcpip channel (jump tunnel).
-/// Keeps the hop session alive for the lifetime of the tunnel.
-/// `transport` is a clone of the hop session's underlying socket, used only
-/// to wait for readability without spinning.
-fn bridge_streams(
-    mut local: TcpStream,
-    mut channel: Channel,
-    hop_session: SshSession,
-    transport: Option<TcpStream>,
-) {
-    hop_session.set_blocking(false);
-    if local.set_nonblocking(true).is_err() {
-        return;
-    }
+/// Handshake + host key check (TOFU) + auth over any transport stream
+/// (a TcpStream for direct connections, a tunneled SSH channel for hops)
+#[allow(clippy::too_many_arguments)]
+async fn establish<S>(
+    stream: S,
+    host: &str,
+    port: u16,
+    username: &str,
+    auth_method: &str,
+    password: Option<&str>,
+    private_key_path: Option<&str>,
+    private_key_passphrase: Option<&str>,
+) -> Result<Handle<TofuHandler>, SshError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let handler = TofuHandler {
+        host: host.to_string(),
+        port,
+    };
+    let mut handle = tokio::time::timeout(
+        HANDSHAKE_TIMEOUT,
+        client::connect_stream(client_config(), stream, handler),
+    )
+    .await
+    .map_err(|_| {
+        SshError::ConnectionFailed(format!("{}:{}: SSH handshake timeout", host, port))
+    })??;
 
-    // Wake on data from either side: the local loopback socket or the hop's
-    // SSH transport socket
-    let mut wait_sockets: Vec<TcpStream> = Vec::with_capacity(2);
-    if let Ok(clone) = local.try_clone() {
-        wait_sockets.push(clone);
-    }
-    if let Some(socket) = transport {
-        wait_sockets.push(socket);
-    }
-    let mut waiter = ReadWaiter::new(wait_sockets);
-
-    let mut buf = vec![0u8; READ_BUFFER_SIZE];
-    loop {
-        let mut idle = true;
-
-        // local -> remote
-        match local.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                if write_full(&mut channel, &buf[..n]).is_err() {
-                    break;
-                }
-                idle = false;
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(_) => break,
-        }
-
-        // remote -> local
-        match channel.read(&mut buf) {
-            Ok(0) => {
-                if channel.eof() {
-                    break;
-                }
-            }
-            Ok(n) => {
-                if write_full(&mut local, &buf[..n]).is_err() {
-                    break;
-                }
-                idle = false;
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(_) => break,
-        }
-
-        if idle {
-            waiter.wait(SOCKET_WAIT_TIMEOUT);
-        }
-    }
-
-    channel.close().ok();
-    log::info!("Jump tunnel closed");
-}
-
-/// Expose an SSH direct-tcpip channel as a real TcpStream by bridging it over
-/// a local loopback socket pair (an ssh2 Channel is not a TcpStream, but the
-/// next SSH session in the chain needs one). The hop session moves into the
-/// bridge thread, which keeps it alive for the tunnel's lifetime.
-fn bridge_to_loopback(
-    channel: Channel,
-    hop_session: SshSession,
-    transport: Option<TcpStream>,
-) -> Result<TcpStream, SshError> {
-    let listener = TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|e| SshError::ConnectionFailed(format!("Local tunnel bind: {}", e)))?;
-    let local_addr = listener
-        .local_addr()
-        .map_err(|e| SshError::ConnectionFailed(format!("Local tunnel addr: {}", e)))?;
-
-    // Connect from a helper thread while accepting here, then verify the
-    // accepted peer is OUR socket: any other local process racing into the
-    // loopback port is rejected (fail-closed)
-    let connector = thread::spawn(move || TcpStream::connect(local_addr));
-
-    let (local, peer_addr) = listener
-        .accept()
-        .map_err(|e| SshError::ConnectionFailed(format!("Local tunnel accept: {}", e)))?;
-    let stream = connector
-        .join()
-        .map_err(|_| SshError::ConnectionFailed("Local tunnel connect thread panicked".into()))?
-        .map_err(|e| SshError::ConnectionFailed(format!("Local tunnel connect: {}", e)))?;
-    drop(listener);
-
-    let our_addr = stream
-        .local_addr()
-        .map_err(|e| SshError::ConnectionFailed(format!("Local tunnel addr: {}", e)))?;
-    if peer_addr != our_addr {
-        return Err(SshError::ConnectionFailed(
-            "Local tunnel rejected: unexpected process connected to the loopback port".into(),
-        ));
-    }
-
-    thread::spawn(move || bridge_streams(local, channel, hop_session, transport));
-
-    stream.set_nodelay(true).ok();
-    Ok(stream)
+    authenticate(
+        &mut handle,
+        username,
+        auth_method,
+        password,
+        private_key_path,
+        private_key_passphrase,
+    )
+    .await?;
+    Ok(handle)
 }
 
 fn hop_port(hop: &JumpHop) -> u16 {
@@ -530,21 +440,65 @@ fn hop_port(hop: &JumpHop) -> u16 {
     }
 }
 
-/// Open a TCP stream to the target through a chain of jump hosts.
+fn hop_username<'a>(hop: &'a JumpHop, default_username: &'a str) -> &'a str {
+    if hop.username.trim().is_empty() {
+        default_username
+    } else {
+        hop.username.as_str()
+    }
+}
+
+async fn establish_hop(
+    stream: impl AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    hop: &JumpHop,
+    hop_n: usize,
+    default_username: &str,
+) -> Result<Handle<TofuHandler>, SshError> {
+    establish(
+        stream,
+        &hop.host,
+        hop_port(hop),
+        hop_username(hop, default_username),
+        &hop.auth_method,
+        hop.password.as_deref(),
+        hop.private_key_path.as_deref(),
+        hop.private_key_passphrase.as_deref(),
+    )
+    .await
+    .map_err(|e| match e {
+        // Host key errors must keep their exact format (the frontend parses it)
+        SshError::HostKeyMismatch(_) => e,
+        SshError::AuthFailed(msg) => {
+            SshError::AuthFailed(format!("Hop {} ({}): {}", hop_n, hop.host, msg))
+        }
+        other => SshError::ConnectionFailed(format!("Hop {} ({}): {}", hop_n, hop.host, other)),
+    })
+}
+
+/// Open a transport stream to the target through a chain of jump hosts.
 /// Each hop: SSH session over the previous stream -> direct-tcpip channel to
-/// the next hop (or the final target) -> loopback bridge -> new TcpStream.
+/// the next hop (or the final target), used directly as the next transport.
 /// Every hop gets full host key verification (TOFU) and its own auth method.
-fn open_chain_stream(
+/// Returns the stream to the target plus every hop's session handle (they
+/// must stay alive for the tunnel's lifetime).
+async fn open_chain_stream(
     app: &tauri::AppHandle,
     progress_id: Option<&str>,
     default_username: &str,
     hops: &[JumpHop],
     target_host: &str,
     target_port: u16,
-) -> Result<TcpStream, SshError> {
+) -> Result<
+    (
+        impl AsyncRead + AsyncWrite + Unpin + Send + 'static,
+        Vec<Handle<TofuHandler>>,
+    ),
+    SshError,
+> {
     let total = hops.len();
-    let first = &hops[0];
+    let mut handles: Vec<Handle<TofuHandler>> = Vec::with_capacity(total);
 
+    let first = &hops[0];
     emit_progress(
         app,
         progress_id,
@@ -555,47 +509,19 @@ fn open_chain_stream(
             hop_port(first)
         ),
     );
-    let mut stream = tcp_connect(&first.host, hop_port(first))
+    let tcp = tcp_connect(&first.host, hop_port(first))
+        .await
         .map_err(|e| SshError::ConnectionFailed(format!("Hop 1 ({}): {}", first.host, e)))?;
+
+    emit_progress(
+        app,
+        progress_id,
+        format!("Hop 1/{}: authenticating on {}...", total, first.host),
+    );
+    let mut session = establish_hop(tcp, first, 1, default_username).await?;
 
     for (i, hop) in hops.iter().enumerate() {
         let hop_n = i + 1;
-        let port = hop_port(hop);
-
-        emit_progress(
-            app,
-            progress_id,
-            format!("Hop {}/{}: authenticating on {}...", hop_n, total, hop.host),
-        );
-
-        // Clone of the transport socket: the bridge thread waits on it for
-        // readability instead of spin-polling
-        let transport = stream.try_clone().ok();
-
-        let mut session = SshSession::new()?;
-        session.set_timeout(SSH_BLOCKING_TIMEOUT_MS);
-        session.set_compress(true);
-        session.set_tcp_stream(stream);
-        session.handshake().map_err(|e| {
-            SshError::ConnectionFailed(format!("Hop {} ({}): {}", hop_n, hop.host, e))
-        })?;
-        verify_host_key(&session, &hop.host, port)?;
-
-        let username = if hop.username.trim().is_empty() {
-            default_username
-        } else {
-            hop.username.as_str()
-        };
-        authenticate(
-            &session,
-            username,
-            &hop.auth_method,
-            hop.password.as_deref(),
-            hop.private_key_path.as_deref(),
-            hop.private_key_passphrase.as_deref(),
-        )
-        .map_err(|e| SshError::AuthFailed(format!("Hop {} ({}): {}", hop_n, hop.host, e)))?;
-
         let (next_host, next_port) = match hops.get(i + 1) {
             Some(next) => (next.host.as_str(), hop_port(next)),
             None => (target_host, target_port),
@@ -611,18 +537,38 @@ fn open_chain_stream(
         );
 
         let channel = session
-            .channel_direct_tcpip(next_host, next_port, None)
+            .channel_open_direct_tcpip(next_host, next_port as u32, "127.0.0.1", 0)
+            .await
             .map_err(|e| {
                 SshError::ChannelError(format!(
                     "Tunnel from {} to {}:{}: {}",
                     hop.host, next_host, next_port, e
                 ))
             })?;
+        let stream = channel.into_stream();
 
-        stream = bridge_to_loopback(channel, session, transport)?;
+        match hops.get(i + 1) {
+            Some(next) => {
+                emit_progress(
+                    app,
+                    progress_id,
+                    format!(
+                        "Hop {}/{}: authenticating on {}...",
+                        hop_n + 1,
+                        total,
+                        next.host
+                    ),
+                );
+                let new_session = establish_hop(stream, next, hop_n + 1, default_username).await?;
+                handles.push(std::mem::replace(&mut session, new_session));
+            }
+            None => {
+                handles.push(session);
+                return Ok((stream, handles));
+            }
+        }
     }
-
-    Ok(stream)
+    unreachable!("open_chain_stream called with empty hop list")
 }
 
 impl SshManager {
@@ -633,7 +579,7 @@ impl SshManager {
         }
     }
 
-    /// Clean up channels whose reader thread detected EOF/error
+    /// Clean up channels whose reader task detected EOF/error
     pub fn cleanup_dead_channels(&self) {
         let dead_ids: Vec<String> = {
             let mut dead = self.dead_channels.lock().unwrap();
@@ -646,21 +592,27 @@ impl SshManager {
 
         let mut channels = self.channels.lock().unwrap();
         for id in dead_ids {
-            if let Some(ssh) = channels.remove(&id) {
-                ssh.running.store(false, Ordering::Relaxed);
-                if let Ok(mut inner) = ssh.inner.lock() {
-                    inner.channel.send_eof().ok();
-                    inner.channel.close().ok();
-                }
+            // Dropping the entry releases the write half and every session
+            // handle (target + hops); russh tears the connections down
+            if channels.remove(&id).is_some() {
                 log::info!("Cleaned up dead channel: {}", id);
             }
         }
     }
 
+    fn entry(&self, channel_id: &str) -> Result<Arc<ChannelEntry>, SshError> {
+        self.channels
+            .lock()
+            .unwrap()
+            .get(channel_id)
+            .cloned()
+            .ok_or_else(|| SshError::SessionNotFound(channel_id.to_string()))
+    }
+
     /// Connect to the session's host (directly or through its jump chain),
-    /// open a PTY shell and spawn the reader thread. Credentials come already
+    /// open a PTY shell and spawn the reader task. Credentials come already
     /// decrypted inside `config` (loaded backend-side from the DB).
-    pub fn connect(
+    pub async fn connect(
         &self,
         app: &tauri::AppHandle,
         config: &SessionConfig,
@@ -679,214 +631,203 @@ impl SshManager {
             .cloned()
             .collect();
 
-        let stream = if valid_hops.is_empty() {
-            tcp_connect(&config.host, port)?
+        let (handle, hop_handles) = if valid_hops.is_empty() {
+            let tcp = tcp_connect(&config.host, port).await?;
+            emit_progress(
+                app,
+                progress_id,
+                format!("Authenticating on {}:{}...", config.host, port),
+            );
+            let handle = establish(
+                tcp,
+                &config.host,
+                port,
+                &config.username,
+                &config.auth_method,
+                config.password.as_deref(),
+                config.private_key_path.as_deref(),
+                config.private_key_passphrase.as_deref(),
+            )
+            .await?;
+            (handle, Vec::new())
         } else {
-            open_chain_stream(
+            let (stream, hop_handles) = open_chain_stream(
                 app,
                 progress_id,
                 &config.username,
                 &valid_hops,
                 &config.host,
                 port,
-            )?
+            )
+            .await?;
+            emit_progress(
+                app,
+                progress_id,
+                format!("Authenticating on {}:{}...", config.host, port),
+            );
+            // Verify against the logical host (even when tunneled through a jump)
+            let handle = establish(
+                stream,
+                &config.host,
+                port,
+                &config.username,
+                &config.auth_method,
+                config.password.as_deref(),
+                config.private_key_path.as_deref(),
+                config.private_key_passphrase.as_deref(),
+            )
+            .await?;
+            (handle, hop_handles)
         };
 
-        emit_progress(
-            app,
-            progress_id,
-            format!("Authenticating on {}:{}...", config.host, port),
-        );
+        let channel = handle.channel_open_session().await?;
+        channel
+            .request_pty(
+                false,
+                "xterm-256color",
+                cols.unwrap_or(80) as u32,
+                rows.unwrap_or(24) as u32,
+                0,
+                0,
+                &[],
+            )
+            .await?;
+        channel.request_shell(false).await?;
 
-        // Clone of the transport socket: the reader thread waits on it for
-        // readability instead of sleep-polling every few ms
-        let wait_socket = stream.try_clone().ok();
-
-        let mut session = SshSession::new()?;
-        session.set_timeout(SSH_BLOCKING_TIMEOUT_MS);
-        session.set_compress(true);
-        session.set_tcp_stream(stream);
-        session.handshake()?;
-
-        // Verify against the logical host (even when tunneled through a jump)
-        verify_host_key(&session, &config.host, port)?;
-
-        authenticate(
-            &session,
-            &config.username,
-            &config.auth_method,
-            config.password.as_deref(),
-            config.private_key_path.as_deref(),
-            config.private_key_passphrase.as_deref(),
-        )?;
-
-        let mut channel = session.channel_session()?;
-
-        let term_cols = cols.unwrap_or(80) as u32;
-        let term_rows = rows.unwrap_or(24) as u32;
-
-        channel.request_pty("xterm-256color", None, Some((term_cols, term_rows, 0, 0)))?;
-        channel.shell()?;
-
-        session.set_keepalive(true, KEEPALIVE_INTERVAL_SECS);
-        session.set_blocking(false);
-
+        let (mut read_half, write_half) = channel.split();
         let channel_id = Uuid::new_v4().to_string();
+        let close_notify = Arc::new(Notify::new());
 
-        let inner = Arc::new(Mutex::new(SshChannelInner { session, channel }));
-        let running = Arc::new(AtomicBool::new(true));
-
-        let ssh_channel = SshChannel {
-            id: channel_id.clone(),
-            inner: inner.clone(),
-            running: running.clone(),
-        };
-
-        // Spawn reader thread
+        // Spawn reader task: coalesces PTY output into batched IPC events
         let app_handle = app.clone();
         let channel_id_clone = channel_id.clone();
-        let inner_clone = inner.clone();
-        let running_clone = running.clone();
+        let notify = close_notify.clone();
         let dead_list = self.dead_channels.clone();
 
-        thread::spawn(move || {
-            let mut buf = vec![0u8; READ_BUFFER_SIZE];
-            // Coalescing buffer: batches many small reads into one IPC event
-            let mut pending: Vec<u8> = Vec::with_capacity(READ_BUFFER_SIZE);
-            let mut last_flush = Instant::now();
-            let mut last_keepalive = Instant::now();
-            // Blocks on socket readability while idle (~0% CPU between keys)
-            let mut waiter = ReadWaiter::new(wait_socket.into_iter().collect());
+        tauri::async_runtime::spawn(async move {
+            let mut pending: Vec<u8> = Vec::with_capacity(FLUSH_THRESHOLD);
+            let mut exit_status: Option<i32> = None;
+            let mut eof_seen = false;
+            // true when the frontend asked to disconnect (no pty_closed event)
+            let mut external_close = false;
 
             loop {
-                if !running_clone.load(Ordering::Relaxed) {
-                    break;
-                }
-
-                // Try to read from channel (lock held only during the non-blocking read)
-                let read_result = {
-                    let mut inner_guard = match inner_clone.lock() {
-                        Ok(guard) => guard,
-                        Err(_) => break,
-                    };
-                    inner_guard.channel.read(&mut buf)
+                let wait_for = if pending.is_empty() {
+                    IDLE_WAIT
+                } else {
+                    FLUSH_INTERVAL
                 };
 
-                match read_result {
-                    Ok(n) if n > 0 => {
-                        pending.extend_from_slice(&buf[..n]);
-                        if pending.len() >= FLUSH_THRESHOLD
-                            || last_flush.elapsed() >= FLUSH_INTERVAL
-                        {
-                            flush_pending(&app_handle, &channel_id_clone, &mut pending);
-                            last_flush = Instant::now();
-                        }
-                        // Keep draining without sleeping while data flows
+                tokio::select! {
+                    _ = notify.notified() => {
+                        external_close = true;
+                        break;
                     }
-                    Ok(_) => {
-                        flush_pending(&app_handle, &channel_id_clone, &mut pending);
-                        // No data; check whether channel reached EOF
-                        let is_eof = {
-                            match inner_clone.lock() {
-                                Ok(guard) => guard.channel.eof(),
-                                Err(_) => break,
+                    msg = tokio::time::timeout(wait_for, read_half.wait()) => match msg {
+                        // Quiet gap: deliver whatever is pending (typing echo path)
+                        Err(_) => flush_pending(&app_handle, &channel_id_clone, &mut pending),
+                        // Channel/session is gone
+                        Ok(None) => {
+                            flush_pending(&app_handle, &channel_id_clone, &mut pending);
+                            let clean = eof_seen || exit_status.is_some();
+                            emit_pty_closed(
+                                &app_handle,
+                                &channel_id_clone,
+                                if clean { "normal" } else { "error" },
+                                exit_status,
+                            );
+                            break;
+                        }
+                        Ok(Some(ChannelMsg::Data { data })) => {
+                            pending.extend_from_slice(&data);
+                            if pending.len() >= FLUSH_THRESHOLD {
+                                flush_pending(&app_handle, &channel_id_clone, &mut pending);
                             }
-                        };
-                        if is_eof {
-                            let exit_status = match inner_clone.lock() {
-                                Ok(guard) => guard.channel.exit_status().ok(),
-                                Err(_) => None,
-                            };
+                        }
+                        Ok(Some(ChannelMsg::ExtendedData { data, .. })) => {
+                            pending.extend_from_slice(&data);
+                            if pending.len() >= FLUSH_THRESHOLD {
+                                flush_pending(&app_handle, &channel_id_clone, &mut pending);
+                            }
+                        }
+                        Ok(Some(ChannelMsg::ExitStatus { exit_status: status })) => {
+                            exit_status = Some(status as i32);
+                        }
+                        Ok(Some(ChannelMsg::Eof)) => {
+                            eof_seen = true;
+                            flush_pending(&app_handle, &channel_id_clone, &mut pending);
+                        }
+                        Ok(Some(ChannelMsg::Close)) => {
+                            flush_pending(&app_handle, &channel_id_clone, &mut pending);
                             emit_pty_closed(&app_handle, &channel_id_clone, "normal", exit_status);
                             break;
                         }
-                        waiter.wait(SOCKET_WAIT_TIMEOUT);
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // Idle: deliver whatever is pending (low-latency path for typing)
-                        flush_pending(&app_handle, &channel_id_clone, &mut pending);
-                        last_flush = Instant::now();
-
-                        if last_keepalive.elapsed() >= KEEPALIVE_SEND_INTERVAL {
-                            if let Ok(inner_guard) = inner_clone.lock() {
-                                inner_guard.session.keepalive_send().ok();
-                            }
-                            last_keepalive = Instant::now();
-                        }
-                        // Block (without the lock) until the server sends data
-                        waiter.wait(SOCKET_WAIT_TIMEOUT);
-                    }
-                    Err(_) => {
-                        flush_pending(&app_handle, &channel_id_clone, &mut pending);
-                        emit_pty_closed(&app_handle, &channel_id_clone, "error", None);
-                        break;
+                        Ok(Some(_)) => {}
                     }
                 }
             }
 
             // If the channel died on its own, queue it for cleanup
-            if running_clone.load(Ordering::Relaxed) {
+            if !external_close {
                 if let Ok(mut dead) = dead_list.lock() {
                     dead.push(channel_id_clone.clone());
                 }
             }
-            log::info!("Reader thread for {} exited", channel_id_clone);
+            log::info!("Reader task for {} exited", channel_id_clone);
         });
 
+        let entry = ChannelEntry {
+            write: write_half,
+            handle,
+            hop_handles,
+            close_notify,
+        };
         self.channels
             .lock()
             .unwrap()
-            .insert(channel_id.clone(), ssh_channel);
+            .insert(channel_id.clone(), Arc::new(entry));
 
         Ok(channel_id)
     }
 
-    pub fn send_command(&self, channel_id: &str, cmd: &str) -> Result<(), SshError> {
-        let channels = self.channels.lock().unwrap();
-        let ssh = channels
-            .get(channel_id)
-            .ok_or_else(|| SshError::SessionNotFound(channel_id.to_string()))?;
-
-        let mut inner = ssh.inner.lock().unwrap();
-        // Session is non-blocking: retry on WouldBlock so no input is lost (e.g. large pastes)
-        write_full(&mut inner.channel, cmd.as_bytes())?;
-        Ok(())
+    pub async fn send_command(&self, channel_id: &str, cmd: &str) -> Result<(), SshError> {
+        let entry = self.entry(channel_id)?;
+        // data_bytes waits for SSH window space: backpressure instead of data loss
+        entry
+            .write
+            .data_bytes(cmd.as_bytes().to_vec())
+            .await
+            .map_err(|e| SshError::ChannelError(format!("Write failed: {}", e)))
     }
 
-    pub fn resize(&self, channel_id: &str, cols: u16, rows: u16) -> Result<(), SshError> {
-        let channels = self.channels.lock().unwrap();
-        let ssh = channels
-            .get(channel_id)
-            .ok_or_else(|| SshError::SessionNotFound(channel_id.to_string()))?;
-
-        let mut inner = ssh.inner.lock().unwrap();
-
-        // Temporarily set blocking to true for resize operation
-        inner.session.set_blocking(true);
-        let result = inner
-            .channel
-            .request_pty_size(cols as u32, rows as u32, None, None);
-        inner.session.set_blocking(false);
-
-        result.map_err(|e| SshError::ChannelError(format!("Resize failed: {}", e)))?;
-        Ok(())
+    pub async fn resize(&self, channel_id: &str, cols: u16, rows: u16) -> Result<(), SshError> {
+        let entry = self.entry(channel_id)?;
+        entry
+            .write
+            .window_change(cols as u32, rows as u32, 0, 0)
+            .await
+            .map_err(|e| SshError::ChannelError(format!("Resize failed: {}", e)))
     }
 
-    pub fn disconnect(&self, channel_id: &str) -> Result<(), SshError> {
-        let mut channels = self.channels.lock().unwrap();
-        if let Some(ssh) = channels.remove(channel_id) {
-            // Signal the reader thread to stop
-            ssh.running.store(false, Ordering::Relaxed);
+    pub async fn disconnect(&self, channel_id: &str) -> Result<(), SshError> {
+        let entry = self.channels.lock().unwrap().remove(channel_id);
+        if let Some(entry) = entry {
+            // Stop the reader task first so it doesn't emit pty_closed
+            entry.close_notify.notify_one();
 
-            // Close the channel
-            if let Ok(mut inner) = ssh.inner.lock() {
-                inner.channel.send_eof().ok();
-                inner.channel.close().ok();
-                inner.channel.wait_close().ok();
-            }
+            // Graceful close, bounded: a dead network must not hang the command
+            let _ = tokio::time::timeout(DISCONNECT_TIMEOUT, async {
+                entry.write.eof().await.ok();
+                entry.write.close().await.ok();
+                entry
+                    .handle
+                    .disconnect(Disconnect::ByApplication, "", "en")
+                    .await
+                    .ok();
+            })
+            .await;
+            // Dropping the entry releases the hop sessions too
         }
-        drop(channels);
-
         Ok(())
     }
 }
@@ -964,5 +905,170 @@ mod tests {
         assert_eq!(hop_port(&hop), 2222);
         hop.port = 70000;
         assert_eq!(hop_port(&hop), 22);
+    }
+
+    /// Prueba real contra un sshd local (docker):
+    ///   docker run -d --rm -p 2222:2222 -e PASSWORD_ACCESS=true \
+    ///     -e USER_NAME=test -e USER_PASSWORD=test123 \
+    ///     --name ssh-test lscr.io/linuxserver/openssh-server
+    ///   cargo test -- --ignored --test-threads=1 ssh_integration
+    /// (en serie: ambos tests comparten la entrada known_hosts de [127.0.0.1]:2222)
+    /// Valida: TCP + handshake + TOFU (alta y re-verificación) + auth password
+    /// + shell PTY + eco de comando + forget_host_key.
+    #[tokio::test]
+    #[ignore]
+    async fn ssh_integration_password_pty_roundtrip() {
+        const HOST: &str = "127.0.0.1";
+        const PORT: u16 = 2222;
+
+        // Estado limpio: sin clave previa para este host
+        forget_host_key(HOST, PORT).expect("forget pre-test");
+
+        // Primera conexión: TOFU almacena la clave del servidor
+        let tcp = tcp_connect(HOST, PORT).await.expect("tcp connect");
+        let handle = establish(
+            tcp,
+            HOST,
+            PORT,
+            "test",
+            "password",
+            Some("test123"),
+            None,
+            None,
+        )
+        .await
+        .expect("first connect (TOFU stores key)");
+        drop(handle);
+
+        // Segunda conexión: la clave almacenada debe coincidir
+        let tcp = tcp_connect(HOST, PORT).await.expect("tcp connect 2");
+        let handle = establish(
+            tcp,
+            HOST,
+            PORT,
+            "test",
+            "password",
+            Some("test123"),
+            None,
+            None,
+        )
+        .await
+        .expect("second connect (key must match)");
+
+        // Shell PTY de extremo a extremo: enviamos un comando y leemos el eco
+        let channel = handle.channel_open_session().await.expect("open session");
+        channel
+            .request_pty(false, "xterm-256color", 80, 24, 0, 0, &[])
+            .await
+            .expect("request pty");
+        channel.request_shell(false).await.expect("request shell");
+
+        let (mut read_half, write_half) = channel.split();
+        write_half
+            .data_bytes("echo integracion_ok_$((40+2))\n".as_bytes().to_vec())
+            .await
+            .expect("write command");
+
+        let mut output = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !output.contains("integracion_ok_42") {
+            let msg = tokio::time::timeout_at(deadline, read_half.wait())
+                .await
+                .expect("timeout waiting for shell output")
+                .expect("channel closed before output");
+            if let ChannelMsg::Data { data } = msg {
+                output.push_str(&String::from_utf8_lossy(&data));
+            }
+        }
+
+        write_half.eof().await.ok();
+        write_half.close().await.ok();
+        handle
+            .disconnect(Disconnect::ByApplication, "", "en")
+            .await
+            .ok();
+
+        // La clave aprendida por TOFU existe y se puede olvidar
+        assert!(forget_host_key(HOST, PORT).expect("forget post-test"));
+    }
+
+    /// Prueba real del túnel multi-hop con el mismo sshd de docker (ver test
+    /// anterior): sesión SSH al salto -> canal direct-tcpip hacia sí mismo ->
+    /// el canal es el transporte de la segunda sesión SSH (sin puente local).
+    #[tokio::test]
+    #[ignore]
+    async fn ssh_integration_jump_chain_channel_as_transport() {
+        const HOST: &str = "127.0.0.1";
+        const PORT: u16 = 2222;
+
+        let tcp = tcp_connect(HOST, PORT).await.expect("tcp connect");
+        let hop = establish(
+            tcp,
+            HOST,
+            PORT,
+            "test",
+            "password",
+            Some("test123"),
+            None,
+            None,
+        )
+        .await
+        .expect("hop session");
+
+        // Desde dentro del contenedor, 127.0.0.1:2222 es el propio sshd
+        let channel = hop
+            .channel_open_direct_tcpip(HOST, PORT as u32, "127.0.0.1", 0)
+            .await
+            .expect("direct-tcpip (¿AllowTcpForwarding activo?)");
+        let stream = channel.into_stream();
+
+        let target = establish(
+            stream,
+            HOST,
+            PORT,
+            "test",
+            "password",
+            Some("test123"),
+            None,
+            None,
+        )
+        .await
+        .expect("target session over tunneled channel");
+
+        let session = target.channel_open_session().await.expect("open session");
+        session.exec(true, "echo tunel_ok").await.expect("exec");
+        let (mut read_half, _write_half) = session.split();
+
+        let mut output = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !output.contains("tunel_ok") {
+            let msg = tokio::time::timeout_at(deadline, read_half.wait())
+                .await
+                .expect("timeout waiting for tunneled output")
+                .expect("channel closed before output");
+            if let ChannelMsg::Data { data } = msg {
+                output.push_str(&String::from_utf8_lossy(&data));
+            }
+        }
+
+        forget_host_key(HOST, PORT).ok();
+    }
+
+    #[test]
+    fn hop_username_falls_back_to_default() {
+        let mut hop = JumpHop {
+            host: "h".into(),
+            port: 22,
+            username: String::new(),
+            auth_method: "password".into(),
+            password: None,
+            private_key_path: None,
+            private_key_passphrase: None,
+        };
+        assert_eq!(hop_username(&hop, "alex"), "alex");
+        hop.username = "  ".into();
+        assert_eq!(hop_username(&hop, "alex"), "alex");
+        hop.username = "root".into();
+        assert_eq!(hop_username(&hop, "alex"), "root");
     }
 }
