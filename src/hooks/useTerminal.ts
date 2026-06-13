@@ -6,6 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { CanvasAddon } from '@xterm/addon-canvas';
 import '@xterm/xterm/css/xterm.css';
+import { extractLastBlock } from '../utils/lastBlock';
 
 // Highlight matches while searching (Ctrl/Cmd+F)
 const SEARCH_DECORATIONS = {
@@ -255,10 +256,6 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     return { cols: 80, rows: 24 };
   }, []);
 
-  // Strip ANSI escape codes from text
-  // eslint-disable-next-line no-control-regex
-  const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
-
   const getBufferText = useCallback(() => {
     if (!terminalRef.current) return '';
     const buffer = terminalRef.current.buffer.active;
@@ -277,43 +274,16 @@ export function useTerminal(options: UseTerminalOptions = {}) {
   const getLastBlock = useCallback(() => {
     if (!terminalRef.current) return '';
     const buffer = terminalRef.current.buffer.active;
-    const cursorY = buffer.cursorY + buffer.viewportY;
+
+    // Read the whole buffer (scrollback + viewport); slicing is done by prompt
+    // boundaries in extractLastBlock, so we don't depend on the cursor position
+    // (which is scroll-dependent and was a latent bug).
     const lines: string[] = [];
-
-    // Read lines up to cursor position
-    for (let i = 0; i <= Math.min(cursorY, buffer.length - 1); i++) {
+    for (let i = 0; i < buffer.length; i++) {
       const line = buffer.getLine(i);
-      if (line) lines.push(line.translateToString(true));
+      lines.push(line ? line.translateToString(true) : '');
     }
-
-    if (lines.length === 0) return '';
-
-    // Prompt detection: look for common shell prompt patterns
-    // Matches: user@host:~$, [user@host ~]$, root#, $, #, %, >, etc.
-    const promptRegex = /[$#%>]\s*$/;
-
-    // Find the second-to-last prompt (the one before the current prompt)
-    // This gives us the last command + its output
-    let promptCount = 0;
-    let lastPromptIndex = 0;
-
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const stripped = stripAnsi(lines[i]).trim();
-      if (!stripped) continue;
-      if (promptRegex.test(stripped)) {
-        promptCount++;
-        if (promptCount === 2) {
-          lastPromptIndex = i;
-          break;
-        }
-      }
-    }
-
-    const result = lines.slice(lastPromptIndex)
-      .join('\n')
-      .trim();
-
-    return stripAnsi(result);
+    return extractLastBlock(lines);
   }, []);
 
   const scrollToBottom = useCallback(() => {

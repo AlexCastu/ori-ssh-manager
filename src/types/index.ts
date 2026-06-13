@@ -6,8 +6,14 @@ export interface SessionGroup {
   id: string;
   name: string;
   color: SessionColor;
+  // Icon name from the shared icon registry (utils/icons). 'folder' default.
+  icon: string;
   isExpanded: boolean;
   order: number;
+  // Parent group id for nested folders; null/undefined = top level.
+  parentId?: string | null;
+  // Optional free-text notes/comments.
+  notes?: string | null;
 }
 
 export type AuthMethod = 'password' | 'key' | 'agent';
@@ -36,6 +42,10 @@ export interface Session {
   privateKeyPassphrase?: string;
   jumpHops?: JumpHop[];
   color: SessionColor;
+  // Optional icon name; when absent the sidebar shows the colored dot.
+  icon?: string | null;
+  // Optional free-text notes/comments.
+  notes?: string | null;
   groupId?: string | null;
   createdAt: string;
 }
@@ -73,6 +83,8 @@ export interface SavedCommand {
   sessionId?: string;
   name: string;
   command: string;
+  // Optional free-text notes/description.
+  notes?: string | null;
 }
 
 // ==================== SSH CONNECTION TYPES ====================
@@ -137,7 +149,6 @@ export interface SessionGroupsSlice {
   updateGroup: (id: string, group: Partial<SessionGroup>) => void;
   deleteGroup: (id: string) => Promise<void>;
   toggleGroupExpanded: (id: string) => void;
-  reorderSessions: (groupId: string | null, sessionIds: string[]) => void;
 }
 
 export interface SessionsSlice {
@@ -170,20 +181,25 @@ export interface TerminalsSlice {
 export interface UISlice {
   toasts: ToastMessage[];
   sessionModal: ModalState & { data?: { session?: Session; mode: 'create' | 'edit' } };
+  groupModal: ModalState & { data?: { group?: SessionGroup; mode: 'create' | 'edit'; parentId?: string | null } };
   commandModal: ModalState & { data?: { command?: SavedCommand; mode?: 'create' | 'edit' } };
   settingsModal: ModalState;
   sidebarCollapsed: boolean;
+  sidebarWidth: number; // expanded width in px (resizable)
   commandPanelCollapsed: boolean;
   terminalZoom: number; // 0.8 to 1.5 multiplier
   addToast: (toast: Omit<ToastMessage, 'id'>) => void;
   removeToast: (id: string) => void;
   openSessionModal: (data: { session?: Session; mode: 'create' | 'edit' }) => void;
   closeSessionModal: () => void;
+  openGroupModal: (data: { group?: SessionGroup; mode: 'create' | 'edit'; parentId?: string | null }) => void;
+  closeGroupModal: () => void;
   openCommandModal: (data?: { command?: SavedCommand; mode?: 'create' | 'edit' }) => void;
   closeCommandModal: () => void;
   openSettingsModal: () => void;
   closeSettingsModal: () => void;
   toggleSidebar: () => void;
+  setSidebarWidth: (width: number) => void;
   toggleCommandPanel: () => void;
   setTerminalZoom: (zoom: number) => void;
 }

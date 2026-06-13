@@ -36,6 +36,22 @@ async fn delete_session(state: tauri::State<'_, Arc<AppState>>, id: String) -> R
     state.db.delete_session(&id).map_err(|e| e.to_string())
 }
 
+/// Export every session (WITH decrypted secrets, by explicit user choice) as a
+/// JSON file at `path`. The credentials are written by the backend directly and
+/// never travel over IPC. Returns the number of sessions written.
+#[tauri::command]
+async fn export_sessions_to_path(
+    state: tauri::State<'_, Arc<AppState>>,
+    path: String,
+) -> Result<usize, String> {
+    let (json, count) = state
+        .db
+        .export_sessions_json()
+        .map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("No se pudo escribir el archivo: {e}"))?;
+    Ok(count)
+}
+
 #[tauri::command]
 async fn get_groups(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<SessionGroup>, String> {
     state.db.get_groups().map_err(|e| e.to_string())
@@ -219,6 +235,8 @@ pub fn run() {
         .manage(state)
         // Persist and restore window size/position across launches
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Native save dialog for exporting sessions
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
@@ -232,6 +250,7 @@ pub fn run() {
             get_sessions,
             save_session,
             delete_session,
+            export_sessions_to_path,
             get_groups,
             save_group,
             delete_group,

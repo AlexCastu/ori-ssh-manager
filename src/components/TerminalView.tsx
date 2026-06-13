@@ -339,10 +339,10 @@ export function TerminalView({ tabId }: TerminalViewProps) {
   if (!tab || !session) return null;
 
   const statusConfig = {
-    idle: { color: 'text-zinc-500', label: 'Idle' },
-    connecting: { color: 'text-yellow-500 animate-pulse', label: 'Connecting...' },
-    connected: { color: 'text-green-500', label: 'Connected' },
-    disconnected: { color: 'text-zinc-500', label: 'Disconnected' },
+    idle: { color: 'text-zinc-500', label: 'Inactivo' },
+    connecting: { color: 'text-yellow-500 animate-pulse', label: 'Conectando...' },
+    connected: { color: 'text-green-500', label: 'Conectado' },
+    disconnected: { color: 'text-zinc-500', label: 'Desconectado' },
     error: { color: 'text-red-500', label: 'Error' },
   }[tab.status];
 
@@ -372,9 +372,9 @@ export function TerminalView({ tabId }: TerminalViewProps) {
             {isConnected && (
               <button
                 onClick={handleStop}
-                aria-label="Disconnect"
+                aria-label="Desconectar"
                 className="p-1.5 rounded-lg transition-colors hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-orange-600 dark:hover:text-orange-400"
-                title="Disconnect"
+                title="Desconectar"
               >
                 <StopCircle className="w-4 h-4" />
               </button>
@@ -386,7 +386,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
               title="Copiar todo"
             >
               <Copy className="w-4 h-4" />
-              <span>All</span>
+              <span>Todo</span>
             </button>
             <button
               onClick={handleCopyLastCommand}
@@ -395,14 +395,14 @@ export function TerminalView({ tabId }: TerminalViewProps) {
               title="Copiar último comando/bloque"
             >
               <ClipboardList className="w-4 h-4" />
-              <span>Last</span>
+              <span>Último</span>
             </button>
             {(tab.status === 'disconnected' || tab.status === 'error') && (
               <button
                 onClick={handleReconnect}
-                aria-label="Reconnect"
+                aria-label="Reconectar"
                 className="p-1.5 rounded-lg transition-colors hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-green-600 dark:hover:text-green-400"
-                title="Reconnect"
+                title="Reconectar"
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
@@ -411,7 +411,7 @@ export function TerminalView({ tabId }: TerminalViewProps) {
               onClick={handleClose}
               aria-label="Cerrar pestaña"
               className="p-1.5 rounded-lg transition-colors hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
-              title="Close"
+              title="Cerrar"
             >
               <X className="w-4 h-4" />
             </button>

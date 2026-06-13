@@ -23,19 +23,19 @@ const terminalThemes: { id: TerminalTheme; name: string; icon: typeof Moon; prev
 const appThemes: { id: AppTheme; name: string; icon: typeof Moon; description: string }[] = [
   {
     id: 'light',
-    name: 'Light',
+    name: 'Claro',
     icon: Sun,
-    description: 'Light background',
+    description: 'Fondo claro',
   },
   {
     id: 'dark',
-    name: 'Dark',
+    name: 'Oscuro',
     icon: Moon,
-    description: 'Dark background',
+    description: 'Fondo oscuro',
   },
   {
     id: 'system',
-    name: 'System',
+    name: 'Sistema',
     icon: Laptop,
     description: 'Follow system',
   },
@@ -44,34 +44,34 @@ const appThemes: { id: AppTheme; name: string; icon: typeof Moon; description: s
 const terminalFontSizes: { id: TerminalFontSize; name: string; description: string; preview: string }[] = [
   {
     id: 'small',
-    name: 'Small',
-    description: 'More lines, compact text',
+    name: 'Pequeña',
+    description: 'Más líneas, texto compacto',
     preview: '12px',
   },
   {
     id: 'medium',
-    name: 'Medium',
+    name: 'Mediana',
     description: 'Balanced readability',
     preview: '14px',
   },
   {
     id: 'large',
-    name: 'Large',
+    name: 'Grande',
     description: 'Comfortable, bigger text',
     preview: '16px',
   },
 ];
 
 const cursorStyles: { id: TerminalCursorStyle; name: string; preview: string }[] = [
-  { id: 'block', name: 'Block', preview: '█' },
-  { id: 'bar', name: 'Bar', preview: '▏' },
-  { id: 'underline', name: 'Underline', preview: '▁' },
+  { id: 'block', name: 'Bloque', preview: '█' },
+  { id: 'bar', name: 'Barra', preview: '▏' },
+  { id: 'underline', name: 'Subrayado', preview: '▁' },
 ];
 
 const scrollbackOptions: { id: TerminalScrollback; name: string; description: string }[] = [
-  { id: 1000, name: '1K', description: 'Light, low memory' },
-  { id: 10000, name: '10K', description: 'Balanced (default)' },
-  { id: 50000, name: '50K', description: 'Long history, more memory' },
+  { id: 1000, name: '1K', description: 'Ligero, poca memoria' },
+  { id: 10000, name: '10K', description: 'Equilibrado (por defecto)' },
+  { id: 50000, name: '50K', description: 'Historial largo, más memoria' },
 ];
 
 export function SettingsModal() {
@@ -115,8 +115,8 @@ export function SettingsModal() {
                 <Monitor className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-zinc-900'}`}>Settings</h2>
-                <p className={`text-sm ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>Customize your experience</p>
+                <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-zinc-900'}`}>Ajustes</h2>
+                <p className={`text-sm ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>Personaliza tu experiencia</p>
               </div>
             </div>
             <button
@@ -139,7 +139,7 @@ export function SettingsModal() {
           <div className="space-y-4">
             <div className={`flex items-center gap-2 text-sm font-medium ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
               <Sun className="h-4 w-4" />
-              <span>Appearance</span>
+              <span>Apariencia</span>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -181,7 +181,7 @@ export function SettingsModal() {
           <div className="mt-6 space-y-4">
             <div className={`flex items-center gap-2 text-sm font-medium ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
               <Palette className="h-4 w-4" />
-              <span>Terminal Theme</span>
+              <span>Tema del terminal</span>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -234,7 +234,7 @@ export function SettingsModal() {
 
           {/* Terminal Theme Colors Preview */}
           <div className={`mt-4 rounded-lg border p-4 ${isDark ? 'border-white/10 bg-black/20' : 'border-zinc-200 bg-zinc-50'}`}>
-            <div className={`mb-2 text-xs font-medium ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>Terminal Color Preview</div>
+            <div className={`mb-2 text-xs font-medium ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>Vista previa de colores del terminal</div>
             <div
               className="rounded-md p-3 font-mono text-xs"
               style={{
@@ -265,7 +265,7 @@ export function SettingsModal() {
           <div className="space-y-4">
             <div className={`flex items-center gap-2 text-sm font-medium ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
               <Type className="h-4 w-4" />
-              <span>Terminal Font Size</span>
+              <span>Tamaño de fuente del terminal</span>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -320,7 +320,7 @@ export function SettingsModal() {
           <div className="mt-6 space-y-4">
             <div className={`flex items-center gap-2 text-sm font-medium ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
               <TerminalSquare className="h-4 w-4" />
-              <span>Cursor Style</span>
+              <span>Estilo del cursor</span>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -362,7 +362,7 @@ export function SettingsModal() {
           <div className="mt-6 space-y-4">
             <div className={`flex items-center gap-2 text-sm font-medium ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
               <History className="h-4 w-4" />
-              <span>Scrollback History</span>
+              <span>Historial de scrollback</span>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -382,7 +382,7 @@ export function SettingsModal() {
                     }`}
                   >
                     <span className={`text-sm font-medium ${isSelected ? (isDark ? 'text-white' : 'text-zinc-900') : isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
-                      {option.name} lines
+                      {option.name} líneas
                     </span>
                     <span className={`text-xs ${isSelected ? (isDark ? 'text-zinc-300' : 'text-zinc-600') : isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
                       {option.description}

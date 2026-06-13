@@ -7,6 +7,7 @@ import { sshService } from './hooks/sshService';
 import {
   Sidebar,
   SessionModal,
+  GroupModal,
   TerminalView,
   TabBar,
   CommandPanel,
@@ -45,7 +46,7 @@ function App() {
           }`}>
             <Terminal className={`w-6 h-6 animate-pulse ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
           </div>
-          <p className={`text-sm ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>Loading ORI-SSHManager...</p>
+          <p className={`text-sm ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>Cargando ORI-SSHManager...</p>
         </div>
       </div>
     );
@@ -77,10 +78,10 @@ function App() {
                       <Terminal className={`w-8 h-8 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`} />
                     </div>
                     <h2 className={`text-lg font-medium mb-2 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
-                      No Active Session
+                      Sin sesión activa
                     </h2>
                     <p className={`text-sm max-w-xs ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>
-                      Select a session from the sidebar and click the play button to start a new terminal session
+                      Selecciona una sesión en la barra lateral y pulsa el botón de play para abrir una terminal
                     </p>
                   </div>
                 </div>
@@ -90,6 +91,7 @@ function App() {
         <CommandPanel />
       </div>
       <SessionModal />
+      <GroupModal />
       <CommandModal />
       <SettingsModal />
       <ToastContainer />

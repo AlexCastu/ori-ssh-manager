@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Server, Key, Globe, FileKey, KeyRound, Plus, Trash2 } from 'lucide-react';
+import { X, Server, Key, Globe, FileKey, KeyRound, Plus, Trash2, Circle } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 import type { SessionColor, AuthMethod, JumpHop } from '../types';
+import { ICON_NAMES } from '../utils/icons';
+import { DynamicIcon } from '../utils/IconView';
+import { SESSION_COLORS as colors } from '../utils/colors';
 
 const emptyHop = (): JumpHop => ({
   host: '',
@@ -24,17 +27,6 @@ const toFormHops = (hops?: JumpHop[]): JumpHop[] =>
     privateKeyPath: hop.privateKeyPath || '',
     privateKeyPassphrase: hop.privateKeyPassphrase || '',
   }));
-
-const colors: { value: SessionColor; label: string; class: string }[] = [
-  { value: 'blue', label: 'Blue', class: 'bg-blue-500' },
-  { value: 'green', label: 'Green', class: 'bg-green-500' },
-  { value: 'purple', label: 'Purple', class: 'bg-purple-500' },
-  { value: 'orange', label: 'Orange', class: 'bg-orange-500' },
-  { value: 'red', label: 'Red', class: 'bg-red-500' },
-  { value: 'cyan', label: 'Cyan', class: 'bg-cyan-500' },
-  { value: 'pink', label: 'Pink', class: 'bg-pink-500' },
-  { value: 'yellow', label: 'Yellow', class: 'bg-yellow-500' },
-];
 
 export function SessionModal() {
   const { sessionModal, closeSessionModal, addSession, updateSession } = useStore(
@@ -60,6 +52,8 @@ export function SessionModal() {
     privateKeyPassphrase: existingSession?.privateKeyPassphrase || '',
     jumpHops: toFormHops(existingSession?.jumpHops),
     color: existingSession?.color || 'blue' as SessionColor,
+    icon: existingSession?.icon || '',
+    notes: existingSession?.notes || '',
   });
 
   const [showJumpHost, setShowJumpHost] = useState(!!existingSession?.jumpHops?.length);
@@ -81,6 +75,8 @@ export function SessionModal() {
       privateKeyPassphrase: s?.privateKeyPassphrase || '',
       jumpHops: toFormHops(s?.jumpHops),
       color: s?.color || ('blue' as SessionColor),
+      icon: s?.icon || '',
+      notes: s?.notes || '',
     });
     setShowJumpHost(!!s?.jumpHops?.length);
   }, [sessionModal.isOpen, sessionModal.data]);
@@ -140,6 +136,8 @@ export function SessionModal() {
         privateKeyPassphrase: formData.authMethod === 'key' ? formData.privateKeyPassphrase || undefined : undefined,
         jumpHops,
         color: formData.color,
+        icon: formData.icon || null,
+        notes: formData.notes || null,
       };
 
       if (isEdit && existingSession) {
@@ -170,7 +168,7 @@ export function SessionModal() {
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative w-full max-w-lg bg-white/95 dark:bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto"
+        className="relative w-full max-w-3xl bg-white/95 dark:bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto"
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-white/5 sticky top-0 bg-white/95 dark:bg-zinc-900/90 backdrop-blur-xl z-10">
@@ -180,10 +178,10 @@ export function SessionModal() {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">
-                {isEdit ? 'Edit Session' : 'New Session'}
+                {isEdit ? 'Editar sesión' : 'Nueva sesión'}
               </h2>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                {isEdit ? 'Update SSH session details' : 'Add a new SSH session'}
+                {isEdit ? 'Actualiza los datos de la sesión SSH' : 'Añade una nueva sesión SSH'}
               </p>
             </div>
           </div>
@@ -196,18 +194,21 @@ export function SessionModal() {
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+        <form onSubmit={handleSubmit} className="p-5 space-y-5">
+          {/* Two columns: connection on the left, appearance on the right */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-4">
+          <div className="space-y-4">
           {/* Name */}
           <div>
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-              Session Name
+              Nombre de la sesión
             </label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
-              placeholder="My Server"
+              placeholder="Mi servidor"
               required
             />
           </div>
@@ -248,7 +249,7 @@ export function SessionModal() {
           {/* Username */}
           <div>
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-              Username
+              Usuario
             </label>
             <input
               type="text"
@@ -263,7 +264,7 @@ export function SessionModal() {
           {/* Auth Method Toggle */}
           <div>
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-              Authentication Method
+              Método de autenticación
             </label>
             <div className="flex gap-2">
               <button
@@ -276,7 +277,7 @@ export function SessionModal() {
                 }`}
               >
                 <Key className="w-4 h-4" />
-                <span className="text-sm">Password</span>
+                <span className="text-sm">Contraseña</span>
               </button>
               <button
                 type="button"
@@ -288,7 +289,7 @@ export function SessionModal() {
                 }`}
               >
                 <FileKey className="w-4 h-4" />
-                <span className="text-sm">SSH Key</span>
+                <span className="text-sm">Clave SSH</span>
               </button>
               <button
                 type="button"
@@ -301,7 +302,7 @@ export function SessionModal() {
                 title="Use the running ssh-agent (no credentials stored)"
               >
                 <KeyRound className="w-4 h-4" />
-                <span className="text-sm">Agent</span>
+                <span className="text-sm">Agente</span>
               </button>
             </div>
           </div>
@@ -331,7 +332,7 @@ export function SessionModal() {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                  Private Key Path
+                  Ruta de la clave privada
                 </label>
                 <div className="relative">
                   <FileKey className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -350,7 +351,7 @@ export function SessionModal() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                  Key Passphrase (optional)
+                  Passphrase de la clave (opcional)
                 </label>
                 <div className="relative">
                   <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -365,7 +366,9 @@ export function SessionModal() {
               </div>
             </div>
           )}
+          </div>
 
+          <div className="space-y-4">
           {/* Color */}
           <div>
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
@@ -387,6 +390,59 @@ export function SessionModal() {
             </div>
           </div>
 
+          {/* Icon */}
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+              Icono
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {/* "Dot" = no icon: keep the classic colored dot in the sidebar */}
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, icon: '' })}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-colors ${
+                  formData.icon === ''
+                    ? 'bg-blue-500/20 border-blue-500/50 text-blue-600 dark:text-blue-400'
+                    : 'border-zinc-200 dark:border-white/10 text-zinc-500 hover:border-zinc-300 dark:hover:border-white/20'
+                }`}
+                title="Punto (sin icono)"
+              >
+                <Circle className="w-3 h-3 fill-current" />
+              </button>
+              {ICON_NAMES.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => setFormData({ ...formData, icon: name })}
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-colors ${
+                    formData.icon === name
+                      ? 'bg-blue-500/20 border-blue-500/50 text-blue-600 dark:text-blue-400'
+                      : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-white/20'
+                  }`}
+                  title={name}
+                >
+                  <DynamicIcon name={name} className="w-4 h-4" />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+              Notas (opcional)
+            </label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 resize-none"
+              placeholder="Comentarios, contactos, recordatorios..."
+            />
+          </div>
+          </div>
+          </div>
+
           {/* Jump Host Toggle */}
           <div className="border-t border-zinc-200 dark:border-white/5 pt-4">
             <label className="flex items-center gap-3 cursor-pointer">
@@ -402,7 +458,7 @@ export function SessionModal() {
                 className="w-4 h-4 rounded border-zinc-300 dark:border-white/20 bg-zinc-100 dark:bg-zinc-800 text-blue-500 focus:ring-blue-500/50"
               />
               <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                Use Jump Hosts (Bastion chain)
+                Usar saltos (cadena de bastiones)
               </span>
             </label>
           </div>
@@ -533,7 +589,7 @@ export function SessionModal() {
               onClick={closeSessionModal}
               className="px-4 py-2 rounded-lg border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-900/5 dark:hover:bg-white/5 transition-colors"
             >
-              Cancel
+              Cancelar
             </button>
             <button
               type="submit"
@@ -543,10 +599,10 @@ export function SessionModal() {
               {isLoading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-zinc-300 dark:border-white/30 border-t-white rounded-full animate-spin" />
-                  Saving...
+                  Guardando...
                 </>
               ) : (
-                <>{isEdit ? 'Save Changes' : 'Create Session'}</>
+                <>{isEdit ? 'Guardar cambios' : 'Crear sesión'}</>
               )}
             </button>
           </div>

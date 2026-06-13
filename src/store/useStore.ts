@@ -64,9 +64,11 @@ export const useStore = create<AppStore>()(
       // UI
       toasts: [],
       sessionModal: { isOpen: false },
+      groupModal: { isOpen: false },
       commandModal: { isOpen: false },
       settingsModal: { isOpen: false },
       sidebarCollapsed: false,
+      sidebarWidth: 280,
       commandPanelCollapsed: false,
       terminalZoom: 1.0,
 
@@ -401,6 +403,14 @@ export const useStore = create<AppStore>()(
     set({ sessionModal: { isOpen: false } });
   },
 
+  openGroupModal: (data) => {
+    set({ groupModal: { isOpen: true, data } });
+  },
+
+  closeGroupModal: () => {
+    set({ groupModal: { isOpen: false } });
+  },
+
   openCommandModal: (data) => {
     set({ commandModal: { isOpen: true, data } });
   },
@@ -419,6 +429,11 @@ export const useStore = create<AppStore>()(
 
   toggleSidebar: () => {
     set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
+  },
+
+  setSidebarWidth: (width) => {
+    // Clamp so the sidebar can't be dragged uselessly thin or huge
+    set({ sidebarWidth: Math.max(220, Math.min(560, width)) });
   },
 
   toggleCommandPanel: () => {
@@ -519,24 +534,6 @@ export const useStore = create<AppStore>()(
     }
   },
 
-  reorderSessions: (_groupId, sessionIds) => {
-    // This updates the order of sessions in state
-    // For now, just reorder in memory - can be persisted later
-    set((state) => {
-      const reorderedSessions = sessionIds
-        .map((id) => state.sessions.find((s) => s.id === id))
-        .filter((s): s is Session => s !== undefined);
-
-      const otherSessions = state.sessions.filter(
-        (s) => !sessionIds.includes(s.id)
-      );
-
-      return {
-        sessions: [...otherSessions, ...reorderedSessions],
-      };
-    });
-  },
-
   // ==================== SETTINGS ====================
   updateSettings: (newSettings) => {
     set((state) => ({
@@ -550,6 +547,7 @@ export const useStore = create<AppStore>()(
       partialize: (state) => ({
         settings: state.settings,
         sidebarCollapsed: state.sidebarCollapsed,
+        sidebarWidth: state.sidebarWidth,
         commandPanelCollapsed: state.commandPanelCollapsed,
         terminalZoom: state.terminalZoom,
       }),

@@ -1,5 +1,6 @@
 export { Sidebar } from './Sidebar';
 export { SessionModal } from './SessionModal';
+export { GroupModal } from './GroupModal';
 export { TerminalView } from './TerminalView';
 export { TabBar } from './TabBar';
 export { CommandPanel } from './CommandPanel';

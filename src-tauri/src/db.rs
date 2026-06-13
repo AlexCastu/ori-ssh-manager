@@ -9,6 +9,7 @@ use rand_core::RngCore;
 use rusqlite::{params, Connection, OptionalExtension, Result as SqliteResult};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs,
     path::PathBuf,
     sync::{Mutex, OnceLock},
@@ -26,6 +27,10 @@ fn default_hop_port() -> i32 {
 
 fn default_auth_method() -> String {
     "password".to_string()
+}
+
+fn default_group_icon() -> String {
+    "folder".to_string()
 }
 
 /// One hop of the jump chain (bastion). Secrets are stored encrypted
@@ -65,6 +70,12 @@ pub struct Session {
     #[serde(rename = "jumpHops", default)]
     pub jump_hops: Vec<JumpHop>,
     pub color: String,
+    // Optional per-session icon name; None means "show the colored dot"
+    #[serde(default)]
+    pub icon: Option<String>,
+    // Optional free-text notes/comments (plain text, not a secret)
+    #[serde(default)]
+    pub notes: Option<String>,
     #[serde(rename = "groupId")]
     pub group_id: Option<String>,
     #[serde(rename = "createdAt")]
@@ -77,9 +88,46 @@ pub struct SessionGroup {
     pub id: String,
     pub name: String,
     pub color: String,
+    // Icon name (see frontend icon registry); "folder" by default
+    #[serde(default = "default_group_icon")]
+    pub icon: String,
     pub is_expanded: bool,
     #[serde(rename = "order")]
     pub sort_order: i32,
+    // Parent group id for nested folders; None = top level
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    // Optional free-text notes/comments for the folder
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+/// Shape written by the "export sessions" feature. Includes decrypted secrets
+/// (the user explicitly opted in) and resolves the group id to its name so the
+/// importer can recreate/link the folder. Empty/None fields are omitted.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportSession {
+    name: String,
+    host: String,
+    port: i32,
+    username: String,
+    auth_method: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    private_key_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    private_key_passphrase: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    jump_hops: Vec<JumpHop>,
+    color: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    group_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +137,9 @@ pub struct SavedCommand {
     pub session_id: Option<String>,
     pub name: String,
     pub command: String,
+    // Optional free-text notes/description for the command
+    #[serde(default)]
+    pub notes: Option<String>,
 }
 
 pub struct Database {
@@ -309,16 +360,37 @@ impl Database {
             conn.execute("ALTER TABLE sessions ADD COLUMN jump_chain TEXT", [])?;
         }
 
+        // Migration: add per-session icon if missing
+        if !has_column(&conn, "icon") {
+            conn.execute("ALTER TABLE sessions ADD COLUMN icon TEXT", [])?;
+        }
+
+        // Migration: add per-session notes if missing
+        if !has_column(&conn, "notes") {
+            conn.execute("ALTER TABLE sessions ADD COLUMN notes TEXT", [])?;
+        }
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS commands (
                 id TEXT PRIMARY KEY,
                 session_id TEXT,
                 name TEXT NOT NULL,
                 command TEXT NOT NULL,
+                notes TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             )",
             [],
         )?;
+
+        // Migration: add per-command notes if missing
+        let commands_has_notes: bool = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('commands') WHERE name='notes'")?
+            .query_row([], |row| row.get::<_, i32>(0))
+            .map(|count| count > 0)
+            .unwrap_or(false);
+        if !commands_has_notes {
+            conn.execute("ALTER TABLE commands ADD COLUMN notes TEXT", [])?;
+        }
 
         // Groups live in SQLite next to the sessions that reference them
         // (they used to live only in localStorage, which could desync)
@@ -327,11 +399,37 @@ impl Database {
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 color TEXT NOT NULL DEFAULT 'blue',
+                icon TEXT NOT NULL DEFAULT 'folder',
                 is_expanded INTEGER NOT NULL DEFAULT 1,
-                sort_order INTEGER NOT NULL DEFAULT 0
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                parent_id TEXT,
+                notes TEXT
             )",
             [],
         )?;
+
+        // Migrations for groups created before icon / nesting existed
+        let group_has_column = |conn: &Connection, name: &str| -> bool {
+            conn.prepare(&format!(
+                "SELECT COUNT(*) FROM pragma_table_info('groups') WHERE name='{}'",
+                name
+            ))
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, i32>(0)))
+            .map(|count| count > 0)
+            .unwrap_or(false)
+        };
+        if !group_has_column(&conn, "icon") {
+            conn.execute(
+                "ALTER TABLE groups ADD COLUMN icon TEXT NOT NULL DEFAULT 'folder'",
+                [],
+            )?;
+        }
+        if !group_has_column(&conn, "parent_id") {
+            conn.execute("ALTER TABLE groups ADD COLUMN parent_id TEXT", [])?;
+        }
+        if !group_has_column(&conn, "notes") {
+            conn.execute("ALTER TABLE groups ADD COLUMN notes TEXT", [])?;
+        }
 
         let mut db = Database {
             conn: Mutex::new(conn),
@@ -481,7 +579,7 @@ impl Database {
 
     const SESSION_COLUMNS: &'static str =
         "id, name, host, port, username, auth_method, password, private_key_path,
-         private_key_passphrase, jump_chain, color, group_id, created_at";
+         private_key_passphrase, jump_chain, color, group_id, created_at, icon, notes";
 
     fn session_from_row(
         &self,
@@ -523,6 +621,8 @@ impl Database {
             private_key_passphrase: None,
             jump_hops,
             color: row.get(10)?,
+            icon: row.get(13)?,
+            notes: row.get(14)?,
             group_id: row.get(11)?,
             created_at: row.get(12)?,
         };
@@ -620,8 +720,8 @@ impl Database {
         conn.execute(
             "INSERT OR REPLACE INTO sessions
              (id, name, host, port, username, auth_method, password, private_key_path,
-              private_key_passphrase, jump_chain, color, group_id, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+              private_key_passphrase, jump_chain, color, group_id, created_at, icon, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 session.id,
                 session.name,
@@ -636,9 +736,56 @@ impl Database {
                 session.color,
                 session.group_id,
                 session.created_at,
+                session.icon,
+                session.notes,
             ],
         )?;
         Ok(())
+    }
+
+    /// Build the JSON export of every session WITH decrypted secrets, resolving
+    /// the group id to its name. Returns (json, count). Secrets go straight to
+    /// the file written by the backend — they never cross IPC to the frontend.
+    pub fn export_sessions_json(&self) -> SqliteResult<(String, usize)> {
+        let conn = self.conn.lock().unwrap();
+
+        let group_names: HashMap<String, String> = {
+            let mut stmt = conn.prepare("SELECT id, name FROM groups")?;
+            let rows = stmt
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+            rows.collect::<SqliteResult<_>>()?
+        };
+
+        let sessions: Vec<Session> = {
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {} FROM sessions ORDER BY name",
+                Self::SESSION_COLUMNS
+            ))?;
+            let rows = stmt.query_map([], |row| self.session_from_row(row, true))?;
+            rows.collect::<SqliteResult<_>>()?
+        };
+
+        let exported: Vec<ExportSession> = sessions
+            .into_iter()
+            .map(|s| ExportSession {
+                name: s.name,
+                host: s.host,
+                port: s.port,
+                username: s.username,
+                auth_method: s.auth_method,
+                password: s.password,
+                private_key_path: s.private_key_path,
+                private_key_passphrase: s.private_key_passphrase,
+                jump_hops: s.jump_hops,
+                color: s.color,
+                icon: s.icon,
+                notes: s.notes,
+                group_name: s.group_id.and_then(|gid| group_names.get(&gid).cloned()),
+            })
+            .collect();
+
+        let json = serde_json::to_string_pretty(&exported).map_err(json_err)?;
+        Ok((json, exported.len()))
     }
 
     pub fn delete_session(&self, id: &str) -> SqliteResult<()> {
@@ -654,15 +801,19 @@ impl Database {
     pub fn get_groups(&self) -> SqliteResult<Vec<SessionGroup>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, color, is_expanded, sort_order FROM groups ORDER BY sort_order, name",
+            "SELECT id, name, color, icon, is_expanded, sort_order, parent_id, notes
+             FROM groups ORDER BY sort_order, name",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(SessionGroup {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 color: row.get(2)?,
-                is_expanded: row.get::<_, i32>(3)? != 0,
-                sort_order: row.get(4)?,
+                icon: row.get(3)?,
+                is_expanded: row.get::<_, i32>(4)? != 0,
+                sort_order: row.get(5)?,
+                parent_id: row.get(6)?,
+                notes: row.get(7)?,
             })
         })?;
         rows.collect()
@@ -671,23 +822,41 @@ impl Database {
     pub fn save_group(&self, group: &SessionGroup) -> SqliteResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT OR REPLACE INTO groups (id, name, color, is_expanded, sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT OR REPLACE INTO groups (id, name, color, icon, is_expanded, sort_order, parent_id, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 group.id,
                 group.name,
                 group.color,
+                group.icon,
                 group.is_expanded as i32,
                 group.sort_order,
+                group.parent_id,
+                group.notes,
             ],
         )?;
         Ok(())
     }
 
-    /// Delete a group and detach its sessions (group_id = NULL)
+    /// Delete a group and detach its sessions (group_id = NULL). Nested
+    /// subgroups are reparented to the deleted group's parent (so they are
+    /// not orphaned): a child of a deleted top-level folder becomes top level.
     pub fn delete_group(&self, id: &str) -> SqliteResult<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
+        // Grandparent the children up one level
+        let parent: Option<String> = tx
+            .query_row(
+                "SELECT parent_id FROM groups WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        tx.execute(
+            "UPDATE groups SET parent_id = ?2 WHERE parent_id = ?1",
+            params![id, parent],
+        )?;
         tx.execute(
             "UPDATE sessions SET group_id = NULL WHERE group_id = ?1",
             params![id],
@@ -706,19 +875,21 @@ impl Database {
                 session_id: row.get(1)?,
                 name: row.get(2)?,
                 command: row.get(3)?,
+                notes: row.get(4)?,
             })
         };
 
         if let Some(sid) = session_id {
             let mut stmt = conn.prepare(
-                "SELECT id, session_id, name, command FROM commands
+                "SELECT id, session_id, name, command, notes FROM commands
                  WHERE session_id = ?1 OR session_id IS NULL ORDER BY name",
             )?;
             let rows = stmt.query_map(params![sid], map_row)?;
             rows.collect()
         } else {
-            let mut stmt =
-                conn.prepare("SELECT id, session_id, name, command FROM commands ORDER BY name")?;
+            let mut stmt = conn.prepare(
+                "SELECT id, session_id, name, command, notes FROM commands ORDER BY name",
+            )?;
             let rows = stmt.query_map([], map_row)?;
             rows.collect()
         }
@@ -727,9 +898,9 @@ impl Database {
     pub fn save_command(&self, cmd: &SavedCommand) -> SqliteResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT OR REPLACE INTO commands (id, session_id, name, command)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![cmd.id, cmd.session_id, cmd.name, cmd.command],
+            "INSERT OR REPLACE INTO commands (id, session_id, name, command, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![cmd.id, cmd.session_id, cmd.name, cmd.command, cmd.notes],
         )?;
         Ok(())
     }
@@ -854,20 +1025,26 @@ mod tests {
                 jump_chain TEXT,
                 color TEXT NOT NULL DEFAULT 'blue',
                 group_id TEXT,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                icon TEXT,
+                notes TEXT
              );
              CREATE TABLE groups (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 color TEXT NOT NULL DEFAULT 'blue',
+                icon TEXT NOT NULL DEFAULT 'folder',
                 is_expanded INTEGER NOT NULL DEFAULT 1,
-                sort_order INTEGER NOT NULL DEFAULT 0
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                parent_id TEXT,
+                notes TEXT
              );
              CREATE TABLE commands (
                 id TEXT PRIMARY KEY,
                 session_id TEXT,
                 name TEXT NOT NULL,
                 command TEXT NOT NULL,
+                notes TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
              );",
         )
@@ -893,6 +1070,8 @@ mod tests {
             private_key_passphrase: None,
             jump_hops: Vec::new(),
             color: "blue".to_string(),
+            icon: None,
+            notes: None,
             group_id: None,
             created_at: "2026-06-11T00:00:00.000Z".to_string(),
         }
@@ -989,6 +1168,7 @@ mod tests {
             session_id: Some(session.id.clone()),
             name: "Session command".to_string(),
             command: "uptime".to_string(),
+            notes: None,
         })
         .unwrap();
         db.save_command(&SavedCommand {
@@ -996,6 +1176,7 @@ mod tests {
             session_id: None,
             name: "Global command".to_string(),
             command: "pwd".to_string(),
+            notes: None,
         })
         .unwrap();
 
@@ -1014,8 +1195,11 @@ mod tests {
             id: "group-1".to_string(),
             name: "Production".to_string(),
             color: "red".to_string(),
+            icon: "folder".to_string(),
             is_expanded: true,
             sort_order: 0,
+            parent_id: None,
+            notes: None,
         };
         let mut session = test_session("session-1");
         session.group_id = Some(group.id.clone());
@@ -1028,5 +1212,86 @@ mod tests {
         let sessions = db.get_sessions().unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].group_id, None);
+    }
+
+    #[test]
+    fn notes_roundtrip_for_session_and_group() {
+        let db = test_database();
+
+        let mut session = test_session("session-notes");
+        session.notes = Some("prod — no reiniciar".to_string());
+        db.save_session(&session).unwrap();
+        let loaded = db.get_sessions().unwrap();
+        assert_eq!(loaded[0].notes.as_deref(), Some("prod — no reiniciar"));
+
+        let group = SessionGroup {
+            id: "group-notes".to_string(),
+            name: "Bases de datos".to_string(),
+            color: "blue".to_string(),
+            icon: "database".to_string(),
+            is_expanded: true,
+            sort_order: 0,
+            parent_id: None,
+            notes: Some("puerto 5432".to_string()),
+        };
+        db.save_group(&group).unwrap();
+        let groups = db.get_groups().unwrap();
+        assert_eq!(groups[0].notes.as_deref(), Some("puerto 5432"));
+    }
+
+    #[test]
+    fn export_includes_secrets_and_group_name() {
+        let db = test_database();
+        let group = SessionGroup {
+            id: "g1".to_string(),
+            name: "Producción".to_string(),
+            color: "red".to_string(),
+            icon: "folder".to_string(),
+            is_expanded: true,
+            sort_order: 0,
+            parent_id: None,
+            notes: None,
+        };
+        db.save_group(&group).unwrap();
+        let mut session = test_session("s1");
+        session.password = Some("S3cr3t!".to_string());
+        session.group_id = Some("g1".to_string());
+        db.save_session(&session).unwrap();
+
+        let (json, count) = db.export_sessions_json().unwrap();
+        assert_eq!(count, 1);
+        // Decrypted secret present and group id resolved to its name
+        assert!(json.contains("\"password\": \"S3cr3t!\""));
+        assert!(json.contains("\"groupName\": \"Producción\""));
+        // Internal-only fields are not part of the export shape
+        assert!(!json.contains("\"groupId\""));
+        assert!(!json.contains("\"createdAt\""));
+    }
+
+    #[test]
+    fn delete_group_reparents_nested_children() {
+        let db = test_database();
+        let make_group = |id: &str, parent: Option<&str>| SessionGroup {
+            id: id.to_string(),
+            name: id.to_string(),
+            color: "blue".to_string(),
+            icon: "folder".to_string(),
+            is_expanded: true,
+            sort_order: 0,
+            parent_id: parent.map(str::to_string),
+            notes: None,
+        };
+        // root -> mid -> leaf
+        db.save_group(&make_group("root", None)).unwrap();
+        db.save_group(&make_group("mid", Some("root"))).unwrap();
+        db.save_group(&make_group("leaf", Some("mid"))).unwrap();
+
+        // Deleting "mid" must lift "leaf" up to "root" (its grandparent)
+        db.delete_group("mid").unwrap();
+
+        let groups = db.get_groups().unwrap();
+        assert_eq!(groups.len(), 2);
+        let leaf = groups.iter().find(|g| g.id == "leaf").unwrap();
+        assert_eq!(leaf.parent_id.as_deref(), Some("root"));
     }
 }

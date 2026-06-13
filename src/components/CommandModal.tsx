@@ -17,6 +17,7 @@ export function CommandModal() {
 
   const [name, setName] = useState('');
   const [command, setCommand] = useState('');
+  const [notes, setNotes] = useState('');
   const [isGlobal, setIsGlobal] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -28,6 +29,7 @@ export function CommandModal() {
     if (!commandModal.isOpen) return;
     setName(editingCommand?.name ?? '');
     setCommand(editingCommand?.command ?? '');
+    setNotes(editingCommand?.notes ?? '');
     setIsGlobal(!editingCommand?.sessionId);
   }, [commandModal.isOpen, editingCommand]);
 
@@ -40,6 +42,7 @@ export function CommandModal() {
     const payload = {
       name: name.trim(),
       command: command.trim(),
+      notes: notes.trim() || null,
       sessionId: isGlobal
         ? undefined
         : editingCommand?.sessionId ?? activeSessionId ?? undefined,
@@ -83,9 +86,9 @@ export function CommandModal() {
               <Code className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">{isEdit ? 'Edit Command' : 'Save Command'}</h2>
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">{isEdit ? 'Editar comando' : 'Guardar comando'}</h2>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                {isEdit ? 'Update this command snippet' : 'Create a quick command snippet'}
+                {isEdit ? 'Actualiza este comando' : 'Crea un comando rápido'}
               </p>
             </div>
           </div>
@@ -101,21 +104,21 @@ export function CommandModal() {
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div>
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-              Name
+              Nombre
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50"
-              placeholder="List files"
+              placeholder="Listar archivos"
               required
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-              Command
+              Comando
             </label>
             <textarea
               value={command}
@@ -128,6 +131,19 @@ export function CommandModal() {
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+              Notas (opcional)
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 resize-none"
+              placeholder="Qué hace, avisos..."
+            />
+          </div>
+
+          <div>
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -136,7 +152,7 @@ export function CommandModal() {
                 className="w-4 h-4 rounded border-zinc-300 dark:border-white/20 bg-zinc-100 dark:bg-zinc-800 text-purple-500 focus:ring-purple-500/50"
               />
               <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                Global command (available for all sessions)
+                Comando global (disponible en todas las sesiones)
               </span>
             </label>
           </div>
@@ -148,14 +164,14 @@ export function CommandModal() {
               onClick={closeCommandModal}
               className="px-4 py-2 rounded-lg border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-900/5 dark:hover:bg-white/5 transition-colors"
             >
-              Cancel
+              Cancelar
             </button>
             <button
               type="submit"
               disabled={isLoading || !name.trim() || !command.trim()}
               className="px-4 py-2 rounded-lg bg-purple-500 text-zinc-900 dark:text-white hover:bg-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoading ? 'Saving...' : isEdit ? 'Update Command' : 'Save Command'}
+              {isLoading ? 'Guardando...' : isEdit ? 'Actualizar comando' : 'Guardar comando'}
             </button>
           </div>
         </form>
