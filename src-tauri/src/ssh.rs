@@ -10,7 +10,8 @@ use russh::keys::agent::client::{AgentClient, AgentStream};
 use russh::keys::agent::AgentIdentity;
 use russh::keys::known_hosts::{check_known_hosts_path, learn_known_hosts_path};
 use russh::keys::{load_secret_key, PrivateKeyWithHashAlg, PublicKey};
-use russh::{ChannelMsg, ChannelWriteHalf, Disconnect};
+use russh::{cipher, kex, mac, ChannelMsg, ChannelWriteHalf, Disconnect};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -86,13 +87,65 @@ fn expand_tilde(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+// Algoritmos de compatibilidad: los modernos (seguros) van primero, pero
+// añadimos los legacy que russh excluye por defecto para poder conectar con
+// equipos viejos (switches/firewalls/bastiones) que solo ofrecen ECDH NIST,
+// diffie-hellman-group14-sha1, cifrados CBC o HMAC-SHA1.
+const COMPAT_KEX: &[kex::Name] = &[
+    kex::MLKEM768X25519_SHA256,
+    kex::CURVE25519,
+    kex::CURVE25519_PRE_RFC_8731,
+    kex::DH_GEX_SHA256,
+    kex::DH_G16_SHA512,
+    kex::DH_G14_SHA256,
+    // Legacy (añadidos): NIST P-256/384/521 y group14-sha1
+    kex::ECDH_SHA2_NISTP256,
+    kex::ECDH_SHA2_NISTP384,
+    kex::ECDH_SHA2_NISTP521,
+    kex::DH_G14_SHA1,
+    kex::DH_GEX_SHA1,
+    // Extensiones OpenSSH (ext-info / strict-kex) como cliente
+    kex::EXTENSION_SUPPORT_AS_CLIENT,
+    kex::EXTENSION_OPENSSH_STRICT_KEX_AS_CLIENT,
+];
+
+const COMPAT_CIPHER: &[cipher::Name] = &[
+    cipher::CHACHA20_POLY1305,
+    cipher::AES_256_GCM,
+    cipher::AES_256_CTR,
+    cipher::AES_192_CTR,
+    cipher::AES_128_CTR,
+    // Legacy (añadidos): CBC para equipos antiguos
+    cipher::AES_256_CBC,
+    cipher::AES_192_CBC,
+    cipher::AES_128_CBC,
+];
+
+const COMPAT_MAC: &[mac::Name] = &[
+    mac::HMAC_SHA512_ETM,
+    mac::HMAC_SHA256_ETM,
+    mac::HMAC_SHA512,
+    mac::HMAC_SHA256,
+    // Legacy (añadidos): HMAC-SHA1
+    mac::HMAC_SHA1_ETM,
+    mac::HMAC_SHA1,
+];
+
 /// Shared client config: russh sends keepalives and closes the connection
 /// after KEEPALIVE_MAX unanswered probes
 fn client_config() -> Arc<client::Config> {
+    // Partimos del DEFAULT (mantiene host-keys y compresión) y ampliamos la
+    // lista de algoritmos para compatibilidad con servidores antiguos.
+    let mut preferred = russh::Preferred::DEFAULT;
+    preferred.kex = Cow::Borrowed(COMPAT_KEX);
+    preferred.cipher = Cow::Borrowed(COMPAT_CIPHER);
+    preferred.mac = Cow::Borrowed(COMPAT_MAC);
+
     Arc::new(client::Config {
         keepalive_interval: Some(KEEPALIVE_INTERVAL),
         keepalive_max: KEEPALIVE_MAX,
         nodelay: true,
+        preferred,
         ..Default::default()
     })
 }
