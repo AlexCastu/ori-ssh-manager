@@ -35,6 +35,7 @@ const defaultSettings: AppSettings = {
   terminalFontSize: 'medium',
   cursorStyle: 'block',
   scrollback: 10000,
+  logCommands: true,
 };
 
 export const useStore = create<AppStore>()(
@@ -66,6 +67,7 @@ export const useStore = create<AppStore>()(
       sessionModal: { isOpen: false },
       groupModal: { isOpen: false },
       commandModal: { isOpen: false },
+      infoModal: { isOpen: false },
       settingsModal: { isOpen: false },
       sidebarCollapsed: false,
       sidebarWidth: 280,
@@ -417,6 +419,14 @@ export const useStore = create<AppStore>()(
 
   closeCommandModal: () => {
     set({ commandModal: { isOpen: false } });
+  },
+
+  openInfoModal: (data) => {
+    set({ infoModal: { isOpen: true, data } });
+  },
+
+  closeInfoModal: () => {
+    set({ infoModal: { isOpen: false } });
   },
 
   openSettingsModal: () => {

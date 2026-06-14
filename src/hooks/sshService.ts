@@ -3,6 +3,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useStore } from '../store/useStore';
 import type { Session, ConnectParams } from '../types';
+import { logSessionEvent, isPasswordPrompt } from '../utils/sessionLog';
+
+// How much recent output we keep per channel to feed the password-prompt guard
+const OUTPUT_TAIL_LIMIT = 256;
 
 interface PtyOutputPayload {
   channelId: string;
@@ -90,6 +94,8 @@ class SSHService {
   private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private intentionalCloseChannels = new Set<string>();
   private inputBuffers = new Map<string, string>();
+  // Recent server output per channel, used only by the password-prompt guard
+  private outputTails = new Map<string, string>();
   private initialized = false;
   private outputUnlisten: (() => void) | null = null;
   private closedUnlisten: (() => void) | null = null;
@@ -113,6 +119,9 @@ class SSHService {
     // Listen for PTY output
     this.outputUnlisten = await listen<PtyOutputPayload>('pty_output', (event) => {
       const { channelId, data } = event.payload;
+      // Keep a short tail of recent output for the password-prompt guard
+      const tail = (this.outputTails.get(channelId) ?? '') + data;
+      this.outputTails.set(channelId, tail.slice(-OUTPUT_TAIL_LIMIT));
       const callback = this.callbacks.get(channelId);
       if (callback) {
         callback(data);
@@ -138,6 +147,13 @@ class SSHService {
         const isIntentionalClose =
           closed.reason === 'normal' || this.intentionalCloseChannels.has(channelId);
 
+        // Audit: record how the connection ended
+        logSessionEvent(
+          tab.sessionId,
+          'event',
+          isIntentionalClose ? 'Sesión cerrada' : 'Conexión perdida'
+        );
+
         if (isIntentionalClose) {
           this.disableAutoReconnect(tab.id);
         }
@@ -157,6 +173,7 @@ class SSHService {
       this.callbacks.delete(channelId);
       this.intentionalCloseChannels.delete(channelId);
       this.inputBuffers.delete(channelId);
+      this.outputTails.delete(channelId);
 
       // Free the backend-side resources of the dead channel right away
       // (otherwise they linger until the next connect)
@@ -192,6 +209,7 @@ class SSHService {
         if (command === 'logout' || command === 'exit' || command.startsWith('exit ')) {
           this.intentionalCloseChannels.add(channelId);
         }
+        this.maybeLogCommand(channelId, command);
         buffer = '';
       } else if (char === '\b' || char === '\x7f') {
         buffer = buffer.slice(0, -1);
@@ -201,6 +219,27 @@ class SSHService {
     }
 
     this.inputBuffers.set(channelId, buffer.slice(-256));
+  }
+
+  /// Resolve the session id behind a live channel (via the open tabs).
+  private sessionIdForChannel(channelId: string): string | undefined {
+    return useStore.getState().tabs.find((t) => t.channelId === channelId)?.sessionId;
+  }
+
+  /// Audit a launched command, unless capture is disabled or the recent output
+  /// looks like a password/passphrase prompt (then the line is a secret).
+  private maybeLogCommand(channelId: string, command: string) {
+    if (!command) return;
+    const logCommands = useStore.getState().settings.logCommands ?? true;
+    if (!logCommands) return;
+
+    const sessionId = this.sessionIdForChannel(channelId);
+    if (!sessionId) return;
+
+    const tail = this.outputTails.get(channelId) ?? '';
+    if (isPasswordPrompt(tail)) return;
+
+    logSessionEvent(sessionId, 'command', command);
   }
 
   // Subscribe to multi-hop connection progress for a tab
@@ -289,6 +328,13 @@ class SSHService {
     try {
       const channelId = await invoke<string>('ssh_connect', { params });
       updateTabStatus(tabId, 'connected', channelId);
+      logSessionEvent(
+        session.id,
+        'event',
+        `Conectado a ${session.host}:${session.port}${
+          session.jumpHops?.length ? ` (vía ${session.jumpHops.length} salto(s))` : ''
+        }`
+      );
       addToast({
         type: 'success',
         title: 'Connected',
@@ -301,6 +347,7 @@ class SSHService {
 
       const errorText = String(error);
       const errorInfo = classifyError(errorText);
+      logSessionEvent(session.id, 'event', `Error de conexión: ${errorInfo.title} — ${errorText}`);
       addToast({
         type: 'error',
         title: errorInfo.title,
@@ -383,11 +430,15 @@ class SSHService {
     // Disable auto-reconnect when manually disconnecting
     this.disableAutoReconnect(tabId);
 
+    const sessionId = this.sessionIdForChannel(channelId);
+
     try {
       await invoke('ssh_disconnect', { channelId });
       this.callbacks.delete(channelId);
       this.intentionalCloseChannels.delete(channelId);
       this.inputBuffers.delete(channelId);
+      this.outputTails.delete(channelId);
+      if (sessionId) logSessionEvent(sessionId, 'event', 'Desconexión manual');
       updateTabStatus(tabId, 'disconnected');
     } catch (error) {
       console.error('Failed to disconnect:', error);
@@ -403,6 +454,7 @@ class SSHService {
     this.reconnectConfigs.clear();
     this.intentionalCloseChannels.clear();
     this.inputBuffers.clear();
+    this.outputTails.clear();
     this.reconnectTimers.forEach(timer => clearTimeout(timer));
     this.reconnectTimers.clear();
     this.initialized = false;

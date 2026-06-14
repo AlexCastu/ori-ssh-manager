@@ -257,6 +257,7 @@ function normalizeJumpHops(
         return { ok: false, error: 'port de salto debe estar entre 1 y 65535' };
       }
       hops.push({
+        name: readText(raw, 'name'),
         host,
         port: hopPort,
         username: readText(raw, 'username') ?? '',

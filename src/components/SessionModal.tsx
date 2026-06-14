@@ -9,6 +9,7 @@ import { DynamicIcon } from '../utils/IconView';
 import { SESSION_COLORS as colors } from '../utils/colors';
 
 const emptyHop = (): JumpHop => ({
+  name: '',
   host: '',
   port: 22,
   username: '',
@@ -23,6 +24,7 @@ const emptyHop = (): JumpHop => ({
 const toFormHops = (hops?: JumpHop[]): JumpHop[] =>
   (hops ?? []).map((hop) => ({
     ...hop,
+    name: hop.name || '',
     password: hop.password || '',
     privateKeyPath: hop.privateKeyPath || '',
     privateKeyPassphrase: hop.privateKeyPassphrase || '',
@@ -112,6 +114,7 @@ export function SessionModal() {
         ? formData.jumpHops
             .filter((hop) => hop.host.trim())
             .map((hop) => ({
+              name: hop.name?.trim() || undefined,
               host: hop.host.trim(),
               port: hop.port || 22,
               username: hop.username.trim(),
@@ -489,6 +492,13 @@ export function SessionModal() {
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
+                  <input
+                    type="text"
+                    value={hop.name ?? ''}
+                    onChange={(e) => updateHop(index, { name: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
+                    placeholder="Nombre del salto (opcional, p. ej. Bastión DMZ)"
+                  />
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
                       <input

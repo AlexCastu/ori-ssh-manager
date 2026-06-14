@@ -21,6 +21,8 @@ export type AuthMethod = 'password' | 'key' | 'agent';
 // One hop of the jump chain (bastion). Secrets never come back from the
 // backend: empty on edit means "keep the stored value".
 export interface JumpHop {
+  // Optional human label to identify the bastion in the session map.
+  name?: string | null;
   host: string;
   port: number;
   username: string;
@@ -70,6 +72,22 @@ export interface AppSettings {
   terminalFontSize?: TerminalFontSize;
   cursorStyle?: TerminalCursorStyle;
   scrollback?: TerminalScrollback;
+  // Audit: capture launched commands in the session log (events are always
+  // logged). Default on; the password-prompt guard skips secret input.
+  logCommands?: boolean;
+}
+
+// ==================== SESSION AUDIT LOG ====================
+
+export type SessionLogKind = 'event' | 'command';
+
+export interface SessionLog {
+  id: string;
+  sessionId: string;
+  // ISO-8601 timestamp generated on the frontend.
+  ts: string;
+  kind: SessionLogKind;
+  message: string;
 }
 
 export type TerminalFontSize = 'small' | 'medium' | 'large';
@@ -183,6 +201,7 @@ export interface UISlice {
   sessionModal: ModalState & { data?: { session?: Session; mode: 'create' | 'edit' } };
   groupModal: ModalState & { data?: { group?: SessionGroup; mode: 'create' | 'edit'; parentId?: string | null } };
   commandModal: ModalState & { data?: { command?: SavedCommand; mode?: 'create' | 'edit' } };
+  infoModal: ModalState & { data?: { session: Session } };
   settingsModal: ModalState;
   sidebarCollapsed: boolean;
   sidebarWidth: number; // expanded width in px (resizable)
@@ -196,6 +215,8 @@ export interface UISlice {
   closeGroupModal: () => void;
   openCommandModal: (data?: { command?: SavedCommand; mode?: 'create' | 'edit' }) => void;
   closeCommandModal: () => void;
+  openInfoModal: (data: { session: Session }) => void;
+  closeInfoModal: () => void;
   openSettingsModal: () => void;
   closeSettingsModal: () => void;
   toggleSidebar: () => void;

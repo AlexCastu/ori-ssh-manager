@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Terminal, X, ChevronDown, Unplug, XCircle, CopyX } from 'lucide-react';
+import { Terminal, X, ChevronDown, Unplug, XCircle, CopyX, Network } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 import { sshService } from '../hooks/sshService';
 import { AnchoredMenu } from './AnchoredMenu';
 
 export function TabBar() {
-  const { tabs, activeTabId, sessions, setActiveTab, closeTab } = useStore(
+  const { tabs, activeTabId, sessions, setActiveTab, closeTab, openInfoModal } = useStore(
     useShallow((s) => ({
       tabs: s.tabs,
       activeTabId: s.activeTabId,
       sessions: s.sessions,
       setActiveTab: s.setActiveTab,
       closeTab: s.closeTab,
+      openInfoModal: s.openInfoModal,
     }))
   );
 
@@ -76,6 +77,7 @@ export function TabBar() {
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
+                title={session ? `${session.name} — ${session.username}@${session.host}:${session.port}` : 'Unknown'}
                 onClick={() => setActiveTab(tab.id)}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -142,6 +144,7 @@ export function TabBar() {
             return (
               <button
                 key={tab.id}
+                title={session ? `${session.name} — ${session.username}@${session.host}:${session.port}` : 'Unknown'}
                 onClick={() => {
                   setActiveTab(tab.id);
                   setMenuAnchor(null);
@@ -180,6 +183,7 @@ export function TabBar() {
         const itemClass = `${itemBase} text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700`;
         const itemDanger = `${itemBase} text-red-600 dark:text-red-400 hover:bg-red-500/10`;
         const isConnected = ctxTab.status === 'connected' && ctxTab.channelId;
+        const ctxSession = getSessionForTab(ctxTab.sessionId);
         return (
           <AnchoredMenu
             anchor={ctxMenu.anchor}
@@ -187,6 +191,18 @@ export function TabBar() {
             onClose={() => setCtxMenu(null)}
             className="py-1 min-w-[180px]"
           >
+            {ctxSession && (
+              <button
+                onClick={() => {
+                  openInfoModal({ session: ctxSession });
+                  setCtxMenu(null);
+                }}
+                className={itemClass}
+              >
+                <Network className="w-3.5 h-3.5" />
+                Información / Mapa
+              </button>
+            )}
             {isConnected && (
               <button
                 onClick={() => {

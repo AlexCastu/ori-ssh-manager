@@ -6,7 +6,7 @@ use std::sync::Arc;
 mod db;
 mod ssh;
 
-use db::{Database, SavedCommand, Session, SessionGroup};
+use db::{Database, SavedCommand, Session, SessionGroup, SessionLog};
 use ssh::SshManager;
 
 // ==================== GLOBAL STATE ====================
@@ -89,6 +89,55 @@ async fn save_command(
 #[tauri::command]
 async fn delete_command(state: tauri::State<'_, Arc<AppState>>, id: String) -> Result<(), String> {
     state.db.delete_command(&id).map_err(|e| e.to_string())
+}
+
+// ==================== TAURI COMMANDS: SESSION LOGS (AUDIT) ====================
+
+#[tauri::command]
+async fn add_session_log(
+    state: tauri::State<'_, Arc<AppState>>,
+    log: SessionLog,
+) -> Result<(), String> {
+    state.db.add_session_log(&log).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_session_logs(
+    state: tauri::State<'_, Arc<AppState>>,
+    session_id: String,
+    limit: Option<i64>,
+) -> Result<Vec<SessionLog>, String> {
+    state
+        .db
+        .get_session_logs(&session_id, limit)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn clear_session_logs(
+    state: tauri::State<'_, Arc<AppState>>,
+    session_id: String,
+) -> Result<(), String> {
+    state
+        .db
+        .clear_session_logs(&session_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Export a session's audit log as a JSON file at `path` (written by the
+/// backend, never crosses IPC). Returns the number of entries written.
+#[tauri::command]
+async fn export_session_logs_to_path(
+    state: tauri::State<'_, Arc<AppState>>,
+    session_id: String,
+    path: String,
+) -> Result<usize, String> {
+    let (json, count) = state
+        .db
+        .export_session_logs_json(&session_id)
+        .map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("No se pudo escribir el archivo: {e}"))?;
+    Ok(count)
 }
 
 // ==================== TAURI COMMANDS: SSH ====================
@@ -254,6 +303,11 @@ pub fn run() {
             get_commands,
             save_command,
             delete_command,
+            // Session audit logs
+            add_session_log,
+            get_session_logs,
+            clear_session_logs,
+            export_session_logs_to_path,
             // SSH commands
             ssh_connect,
             ssh_send,

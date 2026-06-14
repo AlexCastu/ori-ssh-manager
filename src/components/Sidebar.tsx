@@ -15,6 +15,7 @@ import {
   Settings,
   Search,
   Download,
+  Network,
   X,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
@@ -115,6 +116,7 @@ function SessionItem({
   onSelect,
   onConnect,
   onEdit,
+  onInfo,
   onDelete,
   onDragStart,
   onDragEnd,
@@ -125,6 +127,7 @@ function SessionItem({
   onSelect: () => void;
   onConnect: () => void;
   onEdit: () => void;
+  onInfo: () => void;
   onDelete: () => void;
   onDragStart: (e: React.DragEvent, sessionId: string) => void;
   onDragEnd: () => void;
@@ -215,6 +218,18 @@ function SessionItem({
 
       {menuAnchor && (
         <AnchoredMenu anchor={menuAnchor} onClose={() => setMenuAnchor(null)}>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onInfo();
+              setMenuAnchor(null);
+            }}
+            className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
+          >
+            <Network className="w-3.5 h-3.5" />
+            Información
+          </button>
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
@@ -365,6 +380,7 @@ interface TreeHandlers {
   onSelectSession: (id: string) => void;
   onConnectSession: (session: Session) => void;
   onEditSession: (session: Session) => void;
+  onInfoSession: (session: Session) => void;
   onDeleteSession: (session: Session) => void;
   onToggleExpand: (groupId: string) => void;
   onStartRename: (group: SessionGroup) => void;
@@ -420,6 +436,7 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
             onSelect={() => h.onSelectSession(session.id)}
             onConnect={() => h.onConnectSession(session)}
             onEdit={() => h.onEditSession(session)}
+            onInfo={() => h.onInfoSession(session)}
             onDelete={() => h.onDeleteSession(session)}
             onDragStart={h.onDragStart}
             onDragEnd={h.onDragEnd}
@@ -570,6 +587,7 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
                   onSelect={() => h.onSelectSession(session.id)}
                   onConnect={() => h.onConnectSession(session)}
                   onEdit={() => h.onEditSession(session)}
+                  onInfo={() => h.onInfoSession(session)}
                   onDelete={() => h.onDeleteSession(session)}
                   onDragStart={h.onDragStart}
                   onDragEnd={h.onDragEnd}
@@ -604,6 +622,7 @@ export function Sidebar() {
     toggleSidebar,
     openSessionModal,
     openGroupModal,
+    openInfoModal,
     openSettingsModal,
     createTab,
     addSession,
@@ -626,6 +645,7 @@ export function Sidebar() {
       toggleSidebar: s.toggleSidebar,
       openSessionModal: s.openSessionModal,
       openGroupModal: s.openGroupModal,
+      openInfoModal: s.openInfoModal,
       openSettingsModal: s.openSettingsModal,
       createTab: s.createTab,
       addSession: s.addSession,
@@ -773,6 +793,10 @@ export function Sidebar() {
   const handleEdit = useCallback((session: Session) => {
     openSessionModal({ session, mode: 'edit' });
   }, [openSessionModal]);
+
+  const handleInfo = useCallback((session: Session) => {
+    openInfoModal({ session });
+  }, [openInfoModal]);
 
   const handleDelete = useCallback((session: Session) => {
     setDeleteTarget({ type: 'session', session });
@@ -959,6 +983,7 @@ export function Sidebar() {
     onSelectSession: setActiveSession,
     onConnectSession: handleConnect,
     onEditSession: handleEdit,
+    onInfoSession: handleInfo,
     onDeleteSession: handleDelete,
     onToggleExpand: toggleGroupExpanded,
     onStartRename: (group) => {
@@ -1154,6 +1179,7 @@ export function Sidebar() {
                   onSelect={() => setActiveSession(session.id)}
                   onConnect={() => handleConnect(session)}
                   onEdit={() => handleEdit(session)}
+                  onInfo={() => handleInfo(session)}
                   onDelete={() => handleDelete(session)}
                   onDragStart={handleDragStart}
                   onDragEnd={handleDragEnd}

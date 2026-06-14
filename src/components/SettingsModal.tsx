@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Monitor, Moon, Sun, Palette, Laptop, Type, TerminalSquare, History } from 'lucide-react';
+import { X, Monitor, Moon, Sun, Palette, Laptop, Type, TerminalSquare, History, ScrollText } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../contexts/ThemeContext';
@@ -398,6 +398,44 @@ export function SettingsModal() {
                 );
               })}
             </div>
+          </div>
+
+          {/* Audit log */}
+          <div className="mt-6 space-y-4">
+            <div className={`flex items-center gap-2 text-sm font-medium ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+              <ScrollText className="h-4 w-4" />
+              <span>Registro de auditoría</span>
+            </div>
+
+            <button
+              onClick={() => updateSettings({ logCommands: !(settings.logCommands ?? true) })}
+              className={`flex w-full items-center justify-between rounded-xl border p-3 text-left transition-all ${
+                isDark
+                  ? 'border-white/10 bg-white/5 hover:border-white/20'
+                  : 'border-zinc-200 bg-zinc-50 hover:border-zinc-300'
+              }`}
+            >
+              <div className="flex flex-col gap-0.5 pr-3">
+                <span className={`text-sm font-medium ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                  Registrar comandos lanzados
+                </span>
+                <span className={`text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                  Los eventos (conexión/desconexión/errores) se registran siempre. Las
+                  entradas tras un prompt de contraseña se omiten.
+                </span>
+              </div>
+              <span
+                className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${
+                  (settings.logCommands ?? true) ? 'bg-cyan-500' : isDark ? 'bg-zinc-600' : 'bg-zinc-300'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                    (settings.logCommands ?? true) ? 'translate-x-[22px]' : 'translate-x-0.5'
+                  }`}
+                />
+              </span>
+            </button>
           </div>
 
           </div>

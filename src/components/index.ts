@@ -5,6 +5,7 @@ export { TerminalView } from './TerminalView';
 export { TabBar } from './TabBar';
 export { CommandPanel } from './CommandPanel';
 export { CommandModal } from './CommandModal';
+export { SessionInfoModal } from './SessionInfoModal';
 export { ToastContainer } from './ToastContainer';
 export { TitleBar } from './TitleBar';
 export { Logo } from './Logo';
