@@ -10,6 +10,7 @@ import { SESSION_COLORS as colors } from '../utils/colors';
 
 const emptyHop = (): JumpHop => ({
   name: '',
+  refSessionId: null,
   host: '',
   port: 22,
   username: '',
@@ -31,17 +32,23 @@ const toFormHops = (hops?: JumpHop[]): JumpHop[] =>
   }));
 
 export function SessionModal() {
-  const { sessionModal, closeSessionModal, addSession, updateSession } = useStore(
+  const { sessionModal, closeSessionModal, addSession, updateSession, sessions } = useStore(
     useShallow((s) => ({
       sessionModal: s.sessionModal,
       closeSessionModal: s.closeSessionModal,
       addSession: s.addSession,
       updateSession: s.updateSession,
+      sessions: s.sessions,
     }))
   );
 
   const isEdit = sessionModal.data?.mode === 'edit';
   const existingSession = sessionModal.data?.session;
+
+  // Other sessions marked "usar como máquina de salto" (exclude self)
+  const jumpSessions = sessions.filter(
+    (s) => s.usableAsJump && s.id !== existingSession?.id
+  );
 
   const [formData, setFormData] = useState({
     name: existingSession?.name || '',
@@ -53,6 +60,7 @@ export function SessionModal() {
     privateKeyPath: existingSession?.privateKeyPath || '',
     privateKeyPassphrase: existingSession?.privateKeyPassphrase || '',
     jumpHops: toFormHops(existingSession?.jumpHops),
+    usableAsJump: existingSession?.usableAsJump ?? false,
     color: existingSession?.color || 'blue' as SessionColor,
     icon: existingSession?.icon || '',
     notes: existingSession?.notes || '',
@@ -76,6 +84,7 @@ export function SessionModal() {
       privateKeyPath: s?.privateKeyPath || '',
       privateKeyPassphrase: s?.privateKeyPassphrase || '',
       jumpHops: toFormHops(s?.jumpHops),
+      usableAsJump: s?.usableAsJump ?? false,
       color: s?.color || ('blue' as SessionColor),
       icon: s?.icon || '',
       notes: s?.notes || '',
@@ -112,20 +121,33 @@ export function SessionModal() {
       // stored secrets are never sent back to the frontend
       const jumpHops = showJumpHost
         ? formData.jumpHops
-            .filter((hop) => hop.host.trim())
-            .map((hop) => ({
-              name: hop.name?.trim() || undefined,
-              host: hop.host.trim(),
-              port: hop.port || 22,
-              username: hop.username.trim(),
-              authMethod: hop.authMethod,
-              password:
-                hop.authMethod === 'password' ? hop.password || undefined : undefined,
-              privateKeyPath:
-                hop.authMethod === 'key' ? hop.privateKeyPath || undefined : undefined,
-              privateKeyPassphrase:
-                hop.authMethod === 'key' ? hop.privateKeyPassphrase || undefined : undefined,
-            }))
+            .filter((hop) => hop.refSessionId || hop.host.trim())
+            .map((hop) =>
+              hop.refSessionId
+                ? {
+                    // Live reference: only the id (+ optional label) is stored;
+                    // the backend resolves the rest from the referenced session.
+                    name: hop.name?.trim() || undefined,
+                    refSessionId: hop.refSessionId,
+                    host: '',
+                    port: 22,
+                    username: '',
+                    authMethod: 'password' as const,
+                  }
+                : {
+                    name: hop.name?.trim() || undefined,
+                    host: hop.host.trim(),
+                    port: hop.port || 22,
+                    username: hop.username.trim(),
+                    authMethod: hop.authMethod,
+                    password:
+                      hop.authMethod === 'password' ? hop.password || undefined : undefined,
+                    privateKeyPath:
+                      hop.authMethod === 'key' ? hop.privateKeyPath || undefined : undefined,
+                    privateKeyPassphrase:
+                      hop.authMethod === 'key' ? hop.privateKeyPassphrase || undefined : undefined,
+                  }
+            )
         : [];
 
       const sessionData = {
@@ -138,6 +160,7 @@ export function SessionModal() {
         privateKeyPath: formData.authMethod === 'key' ? formData.privateKeyPath : undefined,
         privateKeyPassphrase: formData.authMethod === 'key' ? formData.privateKeyPassphrase || undefined : undefined,
         jumpHops,
+        usableAsJump: formData.usableAsJump,
         color: formData.color,
         icon: formData.icon || null,
         notes: formData.notes || null,
@@ -461,7 +484,25 @@ export function SessionModal() {
                 className="w-4 h-4 rounded border-zinc-300 dark:border-white/20 bg-zinc-100 dark:bg-zinc-800 text-blue-500 focus:ring-blue-500/50"
               />
               <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                Usar saltos (cadena de bastiones)
+                Usar saltos (cadena de máquinas de salto)
+              </span>
+            </label>
+          </div>
+
+          {/* This session can itself be reused as a jump host by others */}
+          <div className="border-t border-zinc-200 dark:border-white/5 pt-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.usableAsJump}
+                onChange={(e) => setFormData({ ...formData, usableAsJump: e.target.checked })}
+                className="w-4 h-4 rounded border-zinc-300 dark:border-white/20 bg-zinc-100 dark:bg-zinc-800 text-blue-500 focus:ring-blue-500/50"
+              />
+              <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                Usar como máquina de salto
+                <span className="block text-xs text-zinc-500">
+                  Otras sesiones podrán elegir esta como salto para llegar a su destino
+                </span>
               </span>
             </label>
           </div>
@@ -499,6 +540,48 @@ export function SessionModal() {
                     className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
                     placeholder="Nombre del salto (opcional, p. ej. Bastión DMZ)"
                   />
+                  {jumpSessions.length > 0 && (
+                    <div className="flex gap-1 rounded-lg bg-zinc-200/60 dark:bg-zinc-800 p-0.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => updateHop(index, { refSessionId: null })}
+                        className={`flex-1 rounded-md px-2 py-1 transition-colors ${
+                          !hop.refSessionId
+                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow'
+                            : 'text-zinc-500'
+                        }`}
+                      >
+                        Manual
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateHop(index, { refSessionId: hop.refSessionId ?? jumpSessions[0].id })
+                        }
+                        className={`flex-1 rounded-md px-2 py-1 transition-colors ${
+                          hop.refSessionId
+                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow'
+                            : 'text-zinc-500'
+                        }`}
+                      >
+                        Máquina de salto
+                      </button>
+                    </div>
+                  )}
+                  {hop.refSessionId ? (
+                    <select
+                      value={hop.refSessionId}
+                      onChange={(e) => updateHop(index, { refSessionId: e.target.value })}
+                      className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
+                    >
+                      {jumpSessions.map((js) => (
+                        <option key={js.id} value={js.id}>
+                          {js.name} — {js.username}@{js.host}:{js.port}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                  <>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
                       <input
@@ -572,6 +655,8 @@ export function SessionModal() {
                         placeholder={isEdit ? 'Passphrase (vacío = mantener)' : 'Passphrase (opcional)'}
                       />
                     </div>
+                  )}
+                  </>
                   )}
                 </div>
               ))}

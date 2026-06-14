@@ -13,6 +13,7 @@ import {
   CommandPanel,
   CommandModal,
   SessionInfoModal,
+  CommandPalette,
   ToastContainer,
   TitleBar,
 } from './components';
@@ -95,6 +96,7 @@ function App() {
       <GroupModal />
       <CommandModal />
       <SessionInfoModal />
+      <CommandPalette />
       <SettingsModal />
       <ToastContainer />
     </div>

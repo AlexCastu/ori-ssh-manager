@@ -69,6 +69,7 @@ export const useStore = create<AppStore>()(
       commandModal: { isOpen: false },
       infoModal: { isOpen: false },
       settingsModal: { isOpen: false },
+      commandPaletteOpen: false,
       sidebarCollapsed: false,
       sidebarWidth: 280,
       commandPanelCollapsed: false,
@@ -435,6 +436,14 @@ export const useStore = create<AppStore>()(
 
   closeSettingsModal: () => {
     set({ settingsModal: { isOpen: false } });
+  },
+
+  toggleCommandPalette: () => {
+    set((state) => ({ commandPaletteOpen: !state.commandPaletteOpen }));
+  },
+
+  closeCommandPalette: () => {
+    set({ commandPaletteOpen: false });
   },
 
   toggleSidebar: () => {

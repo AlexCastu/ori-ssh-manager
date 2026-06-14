@@ -33,14 +33,19 @@ fn default_group_icon() -> String {
     "folder".to_string()
 }
 
-/// One hop of the jump chain (bastion). Secrets are stored encrypted
-/// inside the serialized JSON chain.
+/// One hop of the jump chain. Secrets are stored encrypted inside the
+/// serialized JSON chain.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JumpHop {
-    // Optional human label to identify the bastion in the session map
+    // Optional human label to identify the jump host in the session map
     #[serde(default)]
     pub name: Option<String>,
+    // When set, this hop is a live reference to another saved session (one
+    // flagged `usable_as_jump`): its connection fields/secrets are resolved
+    // from that session at read time and the inline fields are left blank.
+    #[serde(rename = "refSessionId", default)]
+    pub ref_session_id: Option<String>,
     pub host: String,
     #[serde(default = "default_hop_port")]
     pub port: i32,
@@ -72,6 +77,9 @@ pub struct Session {
     pub private_key_passphrase: Option<String>,
     #[serde(rename = "jumpHops", default)]
     pub jump_hops: Vec<JumpHop>,
+    // When true this session can be picked as a jump host by other sessions
+    #[serde(rename = "usableAsJump", default)]
+    pub usable_as_jump: bool,
     pub color: String,
     // Optional per-session icon name; None means "show the colored dot"
     #[serde(default)]
@@ -124,6 +132,8 @@ struct ExportSession {
     private_key_passphrase: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     jump_hops: Vec<JumpHop>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    usable_as_jump: bool,
     color: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     icon: Option<String>,
@@ -387,6 +397,14 @@ impl Database {
             conn.execute("ALTER TABLE sessions ADD COLUMN notes TEXT", [])?;
         }
 
+        // Migration: add "usable as jump host" flag if missing
+        if !has_column(&conn, "usable_as_jump") {
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN usable_as_jump INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS commands (
                 id TEXT PRIMARY KEY,
@@ -585,6 +603,7 @@ impl Database {
         for (id, host, port, username, password) in rows {
             let hop = JumpHop {
                 name: None,
+                ref_session_id: None,
                 host,
                 port: port.unwrap_or(22) as i32,
                 username: username.unwrap_or_default(),
@@ -615,7 +634,8 @@ impl Database {
 
     const SESSION_COLUMNS: &'static str =
         "id, name, host, port, username, auth_method, password, private_key_path,
-         private_key_passphrase, jump_chain, color, group_id, created_at, icon, notes";
+         private_key_passphrase, jump_chain, color, group_id, created_at, icon, notes,
+         usable_as_jump";
 
     fn session_from_row(
         &self,
@@ -656,6 +676,7 @@ impl Database {
             private_key_path: row.get(7)?,
             private_key_passphrase: None,
             jump_hops,
+            usable_as_jump: row.get::<_, i32>(15)? != 0,
             color: row.get(10)?,
             icon: row.get(13)?,
             notes: row.get(14)?,
@@ -673,24 +694,33 @@ impl Database {
 
     /// List sessions WITHOUT decrypted credentials (secrets never leave the backend)
     pub fn get_sessions(&self) -> SqliteResult<Vec<Session>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {} FROM sessions ORDER BY name",
-            Self::SESSION_COLUMNS
-        ))?;
-
-        let rows = stmt.query_map([], |row| self.session_from_row(row, false))?;
-        rows.collect()
+        // Scope the connection lock so the jump-reference resolution below can
+        // re-lock it without deadlocking.
+        let mut sessions = {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {} FROM sessions ORDER BY name",
+                Self::SESSION_COLUMNS
+            ))?;
+            let rows = stmt.query_map([], |row| self.session_from_row(row, false))?;
+            rows.collect::<SqliteResult<Vec<_>>>()?
+        };
+        self.apply_jump_refs(&mut sessions, false)?;
+        Ok(sessions)
     }
 
     /// Fetch one session WITH decrypted credentials (backend-internal use only)
     pub fn get_session_secrets(&self, id: &str) -> SqliteResult<Session> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {} FROM sessions WHERE id = ?1",
-            Self::SESSION_COLUMNS
-        ))?;
-        stmt.query_row(params![id], |row| self.session_from_row(row, true))
+        let mut session = {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {} FROM sessions WHERE id = ?1",
+                Self::SESSION_COLUMNS
+            ))?;
+            stmt.query_row(params![id], |row| self.session_from_row(row, true))?
+        };
+        self.apply_jump_refs(std::slice::from_mut(&mut session), true)?;
+        Ok(session)
     }
 
     pub fn save_session(&self, session: &Session) -> SqliteResult<()> {
@@ -728,6 +758,24 @@ impl Database {
         // the same position" (matches the single-field behavior above)
         let mut enc_hops: Vec<JumpHop> = Vec::with_capacity(session.jump_hops.len());
         for (idx, hop) in session.jump_hops.iter().enumerate() {
+            // A session reference stores only the id (+ optional label); its
+            // connection fields/secrets live in the referenced session and are
+            // resolved on read, so we blank them here to avoid stale copies.
+            if let Some(rid) = hop.ref_session_id.as_ref().filter(|b| !b.is_empty()) {
+                enc_hops.push(JumpHop {
+                    name: hop.name.clone(),
+                    ref_session_id: Some(rid.clone()),
+                    host: String::new(),
+                    port: 0,
+                    username: String::new(),
+                    auth_method: "password".to_string(),
+                    password: None,
+                    private_key_path: None,
+                    private_key_passphrase: None,
+                });
+                continue;
+            }
+
             let stored = existing_hops.get(idx);
             let password = match &hop.password {
                 Some(pwd) if !pwd.is_empty() => Some(self.encrypt(pwd)?),
@@ -739,6 +787,7 @@ impl Database {
             };
             enc_hops.push(JumpHop {
                 name: hop.name.clone(),
+                ref_session_id: None,
                 host: hop.host.clone(),
                 port: hop.port,
                 username: hop.username.clone(),
@@ -757,8 +806,9 @@ impl Database {
         conn.execute(
             "INSERT OR REPLACE INTO sessions
              (id, name, host, port, username, auth_method, password, private_key_path,
-              private_key_passphrase, jump_chain, color, group_id, created_at, icon, notes)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+              private_key_passphrase, jump_chain, color, group_id, created_at, icon, notes,
+              usable_as_jump)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 session.id,
                 session.name,
@@ -775,6 +825,7 @@ impl Database {
                 session.created_at,
                 session.icon,
                 session.notes,
+                session.usable_as_jump as i32,
             ],
         )?;
         Ok(())
@@ -784,24 +835,33 @@ impl Database {
     /// the group id to its name. Returns (json, count). Secrets go straight to
     /// the file written by the backend — they never cross IPC to the frontend.
     pub fn export_sessions_json(&self) -> SqliteResult<(String, usize)> {
-        let conn = self.conn.lock().unwrap();
+        // Lock scope: read groups + sessions, then release so jump-reference
+        // resolution can re-lock without deadlocking.
+        let (group_names, mut sessions): (HashMap<String, String>, Vec<Session>) = {
+            let conn = self.conn.lock().unwrap();
 
-        let group_names: HashMap<String, String> = {
-            let mut stmt = conn.prepare("SELECT id, name FROM groups")?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })?;
-            rows.collect::<SqliteResult<_>>()?
+            let group_names: HashMap<String, String> = {
+                let mut stmt = conn.prepare("SELECT id, name FROM groups")?;
+                let rows = stmt.query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+                rows.collect::<SqliteResult<_>>()?
+            };
+
+            let sessions: Vec<Session> = {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {} FROM sessions ORDER BY name",
+                    Self::SESSION_COLUMNS
+                ))?;
+                let rows = stmt.query_map([], |row| self.session_from_row(row, true))?;
+                rows.collect::<SqliteResult<_>>()?
+            };
+
+            (group_names, sessions)
         };
 
-        let sessions: Vec<Session> = {
-            let mut stmt = conn.prepare(&format!(
-                "SELECT {} FROM sessions ORDER BY name",
-                Self::SESSION_COLUMNS
-            ))?;
-            let rows = stmt.query_map([], |row| self.session_from_row(row, true))?;
-            rows.collect::<SqliteResult<_>>()?
-        };
+        // Inline any session references so the exported file is self-contained.
+        self.apply_jump_refs(&mut sessions, true)?;
 
         let exported: Vec<ExportSession> = sessions
             .into_iter()
@@ -814,7 +874,15 @@ impl Database {
                 password: s.password,
                 private_key_path: s.private_key_path,
                 private_key_passphrase: s.private_key_passphrase,
-                jump_hops: s.jump_hops,
+                jump_hops: s
+                    .jump_hops
+                    .into_iter()
+                    .map(|mut h| {
+                        h.ref_session_id = None;
+                        h
+                    })
+                    .collect(),
+                usable_as_jump: s.usable_as_jump,
                 color: s.color,
                 icon: s.icon,
                 notes: s.notes,
@@ -1005,6 +1073,120 @@ impl Database {
         let json = serde_json::to_string_pretty(&logs).map_err(json_err)?;
         Ok((json, count))
     }
+
+    // ==================== JUMP-HOST REFERENCES ====================
+
+    /// Direct connection params of every session (its own hops ignored), keyed
+    /// by id, used to resolve hops that reference another session as a jump
+    /// host. Each entry is shaped as a JumpHop for convenient copying.
+    fn session_conn_map(&self, with_secrets: bool) -> SqliteResult<HashMap<String, JumpHop>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, host, port, username, auth_method, password,
+                    private_key_path, private_key_passphrase FROM sessions",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let enc_password: Option<String> = row.get(6)?;
+            let enc_passphrase: Option<String> = row.get(8)?;
+            let hop = JumpHop {
+                name: Some(row.get::<_, String>(1)?),
+                ref_session_id: None,
+                host: row.get(2)?,
+                port: row.get(3)?,
+                username: row.get(4)?,
+                auth_method: row
+                    .get::<_, Option<String>>(5)?
+                    .unwrap_or_else(|| "password".to_string()),
+                password: if with_secrets {
+                    self.decrypt(&enc_password)?
+                } else {
+                    None
+                },
+                private_key_path: row.get(7)?,
+                private_key_passphrase: if with_secrets {
+                    self.decrypt(&enc_passphrase)?
+                } else {
+                    None
+                },
+            };
+            Ok((id, hop))
+        })?;
+        let mut map = HashMap::new();
+        for r in rows {
+            let (id, hop) = r?;
+            map.insert(id, hop);
+        }
+        Ok(map)
+    }
+
+    /// Resolve hops that reference another session as a jump host, in place.
+    /// Non-secret fields always; secrets only when `with_secrets`. A dangling
+    /// reference (deleted session) is left blank so connect fails clearly.
+    /// The referenced session's OWN hops are intentionally ignored (we only
+    /// borrow its direct connection params).
+    fn apply_jump_refs(&self, sessions: &mut [Session], with_secrets: bool) -> SqliteResult<()> {
+        let needs = sessions.iter().any(|s| {
+            s.jump_hops
+                .iter()
+                .any(|h| h.ref_session_id.as_deref().is_some_and(|r| !r.is_empty()))
+        });
+        if !needs {
+            return Ok(());
+        }
+
+        let map = self.session_conn_map(with_secrets)?;
+        for s in sessions.iter_mut() {
+            for hop in s.jump_hops.iter_mut() {
+                let Some(rid) = hop.ref_session_id.as_deref().filter(|r| !r.is_empty()) else {
+                    continue;
+                };
+                if let Some(src) = map.get(rid) {
+                    hop.host = src.host.clone();
+                    hop.port = src.port;
+                    hop.username = src.username.clone();
+                    hop.auth_method = src.auth_method.clone();
+                    hop.private_key_path = src.private_key_path.clone();
+                    if hop.name.is_none() {
+                        hop.name = src.name.clone();
+                    }
+                    if with_secrets {
+                        hop.password = src.password.clone();
+                        hop.private_key_passphrase = src.private_key_passphrase.clone();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// How many OTHER sessions reference this session as a jump host (for a safe
+    /// delete warning in the UI).
+    pub fn count_session_jump_refs(&self, session_id: &str) -> SqliteResult<usize> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT id, jump_chain FROM sessions WHERE jump_chain IS NOT NULL")?;
+        let rows: Vec<(String, Option<String>)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<SqliteResult<_>>()?;
+        let mut count = 0;
+        for (id, chain) in rows {
+            if id == session_id {
+                continue;
+            }
+            let Some(chain) = chain.filter(|c| !c.trim().is_empty()) else {
+                continue;
+            };
+            let hops: Vec<JumpHop> = serde_json::from_str(&chain).map_err(json_err)?;
+            if hops
+                .iter()
+                .any(|h| h.ref_session_id.as_deref() == Some(session_id))
+            {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
 }
 
 const KEYRING_SERVICE: &str = "ORI-SSHManager";
@@ -1122,7 +1304,8 @@ mod tests {
                 group_id TEXT,
                 created_at TEXT NOT NULL,
                 icon TEXT,
-                notes TEXT
+                notes TEXT,
+                usable_as_jump INTEGER NOT NULL DEFAULT 0
              );
              CREATE TABLE groups (
                 id TEXT PRIMARY KEY,
@@ -1172,6 +1355,7 @@ mod tests {
             private_key_path: None,
             private_key_passphrase: None,
             jump_hops: Vec::new(),
+            usable_as_jump: false,
             color: "blue".to_string(),
             icon: None,
             notes: None,
@@ -1188,6 +1372,90 @@ mod tests {
             kind: kind.to_string(),
             message: message.to_string(),
         }
+    }
+
+    /// A session flagged as a jump host, with its own connection secret.
+    fn test_jump_session(id: &str) -> Session {
+        let mut s = test_session(id);
+        s.name = "Salto central".to_string();
+        s.host = "10.0.0.1".to_string();
+        s.port = 2222;
+        s.username = "ops".to_string();
+        s.password = Some("jump-secret".to_string());
+        s.usable_as_jump = true;
+        s
+    }
+
+    #[test]
+    fn usable_as_jump_flag_roundtrips() {
+        let db = test_database();
+        db.save_session(&test_jump_session("j1")).unwrap();
+        let list = db.get_sessions().unwrap();
+        let j = list.iter().find(|s| s.id == "j1").unwrap();
+        assert!(j.usable_as_jump);
+
+        // Plain session defaults to false
+        db.save_session(&test_session("plain")).unwrap();
+        let list = db.get_sessions().unwrap();
+        assert!(
+            !list
+                .iter()
+                .find(|s| s.id == "plain")
+                .unwrap()
+                .usable_as_jump
+        );
+    }
+
+    #[test]
+    fn session_hop_resolves_live_session_reference() {
+        let db = test_database();
+        // j1 is a session usable as a jump host
+        db.save_session(&test_jump_session("j1")).unwrap();
+
+        // s1 references j1 as its hop
+        let mut session = test_session("s1");
+        session.jump_hops = vec![JumpHop {
+            name: None,
+            ref_session_id: Some("j1".to_string()),
+            host: String::new(),
+            port: 0,
+            username: String::new(),
+            auth_method: "password".to_string(),
+            password: None,
+            private_key_path: None,
+            private_key_passphrase: None,
+        }];
+        db.save_session(&session).unwrap();
+
+        // count_session_jump_refs sees the reference (and ignores j1 itself)
+        assert_eq!(db.count_session_jump_refs("j1").unwrap(), 1);
+
+        // With secrets: hop resolved from j1 (host + decrypted secret)
+        let resolved = db.get_session_secrets("s1").unwrap();
+        assert_eq!(resolved.jump_hops.len(), 1);
+        assert_eq!(resolved.jump_hops[0].host, "10.0.0.1");
+        assert_eq!(resolved.jump_hops[0].port, 2222);
+        assert_eq!(resolved.jump_hops[0].username, "ops");
+        assert_eq!(
+            resolved.jump_hops[0].password.as_deref(),
+            Some("jump-secret")
+        );
+        // The reference id is preserved
+        assert_eq!(resolved.jump_hops[0].ref_session_id.as_deref(), Some("j1"));
+
+        // Masked list: host resolved for display, secret stays hidden
+        let masked = db.get_sessions().unwrap();
+        let s = masked.iter().find(|s| s.id == "s1").unwrap();
+        assert_eq!(s.jump_hops[0].host, "10.0.0.1");
+        assert_eq!(s.jump_hops[0].password, None);
+
+        // Changing j1 propagates to s1 (live reference)
+        let mut moved = test_jump_session("j1");
+        moved.host = "10.9.9.9".to_string();
+        moved.password = Some(String::new()); // keep secret
+        db.save_session(&moved).unwrap();
+        let again = db.get_session_secrets("s1").unwrap();
+        assert_eq!(again.jump_hops[0].host, "10.9.9.9");
     }
 
     #[test]
@@ -1305,6 +1573,7 @@ mod tests {
     fn jump_hop_json_roundtrip() {
         let hop = JumpHop {
             name: Some("Bastion DMZ".into()),
+            ref_session_id: None,
             host: "bastion1".into(),
             port: 2222,
             username: "ops".into(),

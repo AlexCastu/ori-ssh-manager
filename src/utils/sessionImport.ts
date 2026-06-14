@@ -59,6 +59,8 @@ const HEADER_ALIASES: Record<string, string> = {
   user: 'username',
   username: 'username',
   usuario: 'username',
+  usableasjump: 'usableAsJump',
+  usable_as_jump: 'usableAsJump',
 };
 
 export function parseSessionsFile(fileName: string, content: string): SessionImportResult {
@@ -231,6 +233,7 @@ function normalizeSession(row: Record<string, unknown>):
       privateKeyPath: authMethod === 'key' ? privateKeyPath : undefined,
       privateKeyPassphrase: authMethod === 'key' ? readText(row, 'privateKeyPassphrase') : undefined,
       jumpHops: jumpResult.hops,
+      usableAsJump: row.usableAsJump === true || readText(row, 'usableAsJump') === 'true',
       color: normalizeColor(readText(row, 'color')),
       groupName: readText(row, 'groupName'),
     },

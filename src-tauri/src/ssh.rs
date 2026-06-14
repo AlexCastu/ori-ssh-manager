@@ -946,6 +946,7 @@ mod tests {
     fn hop_port_defaults_invalid_to_22() {
         let mut hop = JumpHop {
             name: None,
+            ref_session_id: None,
             host: "h".into(),
             port: 0,
             username: String::new(),
@@ -1112,6 +1113,7 @@ mod tests {
     fn hop_username_falls_back_to_default() {
         let mut hop = JumpHop {
             name: None,
+            ref_session_id: None,
             host: "h".into(),
             port: 22,
             username: String::new(),

@@ -18,11 +18,14 @@ export interface SessionGroup {
 
 export type AuthMethod = 'password' | 'key' | 'agent';
 
-// One hop of the jump chain (bastion). Secrets never come back from the
-// backend: empty on edit means "keep the stored value".
+// One hop of the jump chain. Secrets never come back from the backend: empty
+// on edit means "keep the stored value".
 export interface JumpHop {
-  // Optional human label to identify the bastion in the session map.
+  // Optional human label to identify the jump host in the session map.
   name?: string | null;
+  // When set, this hop is a live reference to another saved session flagged
+  // `usableAsJump`. Connection fields are resolved from it; inline stay blank.
+  refSessionId?: string | null;
   host: string;
   port: number;
   username: string;
@@ -43,6 +46,8 @@ export interface Session {
   privateKeyPath?: string;
   privateKeyPassphrase?: string;
   jumpHops?: JumpHop[];
+  // When true this session can be picked as a jump host by other sessions.
+  usableAsJump?: boolean;
   color: SessionColor;
   // Optional icon name; when absent the sidebar shows the colored dot.
   icon?: string | null;
@@ -203,6 +208,7 @@ export interface UISlice {
   commandModal: ModalState & { data?: { command?: SavedCommand; mode?: 'create' | 'edit' } };
   infoModal: ModalState & { data?: { session: Session } };
   settingsModal: ModalState;
+  commandPaletteOpen: boolean;
   sidebarCollapsed: boolean;
   sidebarWidth: number; // expanded width in px (resizable)
   commandPanelCollapsed: boolean;
@@ -219,6 +225,8 @@ export interface UISlice {
   closeInfoModal: () => void;
   openSettingsModal: () => void;
   closeSettingsModal: () => void;
+  toggleCommandPalette: () => void;
+  closeCommandPalette: () => void;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
   toggleCommandPanel: () => void;

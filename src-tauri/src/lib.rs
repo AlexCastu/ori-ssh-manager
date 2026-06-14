@@ -91,6 +91,19 @@ async fn delete_command(state: tauri::State<'_, Arc<AppState>>, id: String) -> R
     state.db.delete_command(&id).map_err(|e| e.to_string())
 }
 
+/// Number of OTHER sessions that reference this session as a jump host
+/// (UI delete warning).
+#[tauri::command]
+async fn count_session_jump_refs(
+    state: tauri::State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<usize, String> {
+    state
+        .db
+        .count_session_jump_refs(&id)
+        .map_err(|e| e.to_string())
+}
+
 // ==================== TAURI COMMANDS: SESSION LOGS (AUDIT) ====================
 
 #[tauri::command]
@@ -303,6 +316,7 @@ pub fn run() {
             get_commands,
             save_command,
             delete_command,
+            count_session_jump_refs,
             // Session audit logs
             add_session_log,
             get_session_logs,
