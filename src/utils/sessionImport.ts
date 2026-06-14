@@ -33,6 +33,11 @@ const HEADER_ALIASES: Record<string, string> = {
   ip: 'host',
   jump_host: 'jumpHost',
   jumphost: 'jumpHost',
+  // Header normalization lowercases every key, so the camelCase "jumpHops"
+  // array would lose its capital P and never match in normalizeJumpHops.
+  // Map the lowercased/snake_case forms back to the canonical key.
+  jumphops: 'jumpHops',
+  jump_hops: 'jumpHops',
   jump_password: 'jumpPassword',
   jumppassword: 'jumpPassword',
   jump_port: 'jumpPort',
