@@ -6,6 +6,7 @@ import {
   Upload,
   ChevronLeft,
   ChevronDown,
+  ChevronUp,
   Trash2,
   Edit2,
   Play,
@@ -389,6 +390,7 @@ interface TreeHandlers {
   onChangeGroupColor: (groupId: string, color: SessionColor) => void;
   onChangeGroupIcon: (groupId: string, icon: string) => void;
   onAddSubgroup: (parentId: string) => void;
+  onMoveGroup: (id: string, direction: 'up' | 'down') => void;
   onDragStart: (e: React.DragEvent, sessionId: string) => void;
   onDragEnd: () => void;
   onDragOver: (e: React.DragEvent, groupId: string) => void;
@@ -401,8 +403,18 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
   const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   const colors = getColor(group.color);
   const groupSessions = h.sessions.filter((s) => s.groupId === group.id);
-  const childGroups = h.groups.filter((g) => (g.parentId ?? null) === group.id);
+  const childGroups = h.groups
+    .filter((g) => (g.parentId ?? null) === group.id)
+    .sort((a, b) => a.order - b.order);
   const isDragOver = h.dragOverGroupId === group.id;
+
+  // Position among siblings (same parentId) to enable/disable up/down moves.
+  const siblings = h.groups
+    .filter((g) => (g.parentId ?? null) === (group.parentId ?? null))
+    .sort((a, b) => a.order - b.order);
+  const siblingIndex = siblings.findIndex((g) => g.id === group.id);
+  const canMoveUp = siblingIndex > 0;
+  const canMoveDown = siblingIndex < siblings.length - 1;
 
   // Collapsed view: icon box (group color) + nested content when expanded
   if (h.sidebarCollapsed) {
@@ -551,6 +563,32 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
+                  h.onMoveGroup(group.id, 'up');
+                  setMenuAnchor(null);
+                }}
+                disabled={!canMoveUp}
+                className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+                Subir
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  h.onMoveGroup(group.id, 'down');
+                  setMenuAnchor(null);
+                }}
+                disabled={!canMoveDown}
+                className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+                Bajar
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
                   h.onDeleteGroup(group.id);
                   setMenuAnchor(null);
                 }}
@@ -631,6 +669,7 @@ export function Sidebar() {
     updateGroup,
     deleteGroup,
     toggleGroupExpanded,
+    moveGroup,
     updateSession,
   } = useStore(
     useShallow((s) => ({
@@ -654,6 +693,7 @@ export function Sidebar() {
       updateGroup: s.updateGroup,
       deleteGroup: s.deleteGroup,
       toggleGroupExpanded: s.toggleGroupExpanded,
+      moveGroup: s.moveGroup,
       updateSession: s.updateSession,
     }))
   );
@@ -713,7 +753,9 @@ export function Sidebar() {
   const ungroupedSessions = filteredSessions.filter((s) => !s.groupId);
 
   // Top-level folders only; subfolders are rendered recursively inside them
-  const topLevelGroups = groups.filter((g) => !g.parentId);
+  const topLevelGroups = groups
+    .filter((g) => !g.parentId)
+    .sort((a, b) => a.order - b.order);
 
   const getDraggedSessionId = useCallback((e: React.DragEvent) => (
     e.dataTransfer.getData(SESSION_DRAG_MIME) ||
@@ -995,6 +1037,7 @@ export function Sidebar() {
     onChangeGroupColor: (id, color) => updateGroup(id, { color }),
     onChangeGroupIcon: (id, icon) => updateGroup(id, { icon }),
     onAddSubgroup: handleAddSubgroup,
+    onMoveGroup: moveGroup,
     onDragStart: handleDragStart,
     onDragEnd: handleDragEnd,
     onDragOver: handleDragOver,

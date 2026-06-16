@@ -172,6 +172,9 @@ export interface SessionGroupsSlice {
   updateGroup: (id: string, group: Partial<SessionGroup>) => void;
   deleteGroup: (id: string) => Promise<void>;
   toggleGroupExpanded: (id: string) => void;
+  // Move a folder up/down among its siblings (same parentId). Reassigns
+  // sequential `order` to the sibling set and persists the changed ones.
+  moveGroup: (id: string, direction: 'up' | 'down') => void;
 }
 
 export interface SessionsSlice {

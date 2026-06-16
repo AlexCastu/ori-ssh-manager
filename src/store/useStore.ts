@@ -553,6 +553,43 @@ export const useStore = create<AppStore>()(
     }
   },
 
+  moveGroup: (id, direction) => {
+    const { groups } = get();
+    const target = groups.find((g) => g.id === id);
+    if (!target) return;
+
+    const parentId = target.parentId ?? null;
+    // Siblings in their current visual order (stable sort on `order`).
+    const siblings = groups
+      .filter((g) => (g.parentId ?? null) === parentId)
+      .sort((a, b) => a.order - b.order);
+
+    const index = siblings.findIndex((g) => g.id === id);
+    const swapWith = direction === 'up' ? index - 1 : index + 1;
+    if (swapWith < 0 || swapWith >= siblings.length) return; // already at edge
+
+    // Reorder the sibling list, then normalize `order` to 0..n so the values
+    // are always sequential (existing data can have duplicate/gappy orders).
+    [siblings[index], siblings[swapWith]] = [siblings[swapWith], siblings[index]];
+    const orderById = new Map(siblings.map((g, i) => [g.id, i]));
+
+    const changed: SessionGroup[] = [];
+    set((state) => ({
+      groups: state.groups.map((g) => {
+        if (!orderById.has(g.id) || g.order === orderById.get(g.id)) return g;
+        const updated = { ...g, order: orderById.get(g.id)! };
+        changed.push(updated);
+        return updated;
+      }),
+    }));
+
+    changed.forEach((group) =>
+      invoke('save_group', { group }).catch((error) =>
+        console.error('Failed to persist group order:', error)
+      )
+    );
+  },
+
   // ==================== SETTINGS ====================
   updateSettings: (newSettings) => {
     set((state) => ({

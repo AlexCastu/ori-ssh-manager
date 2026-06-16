@@ -1,7 +1,7 @@
 {
   "name": "ori-sshmanager",
   "private": true,
-  "version": "1.4.1",
+  "version": "1.4.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -23,13 +23,10 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^5.5.0",
     "@xyflow/react": "^12.11.0",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
     "framer-motion": "^12.25.0",
     "lucide-react": "^0.562.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tailwind-merge": "^3.4.0",
     "zustand": "^5.0.9"
   },
   "devDependencies": {
