@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Monitor, Moon, Sun, Palette, Type, TerminalSquare, History, ScrollText } from 'lucide-react';
+import { X, Check, Monitor, Moon, Sun, Palette, Type, TerminalSquare, History, ScrollText } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 import type { TerminalTheme, TerminalFontSize, TerminalCursorStyle, TerminalScrollback } from '../types';
@@ -158,8 +158,10 @@ export function SettingsModal() {
                     {isSelected && (
                       <motion.div
                         layoutId="terminal-theme-indicator"
-                        className="absolute -top-px -right-px h-3 w-3 rounded-bl-lg rounded-tr-2xl bg-acento"
-                      />
+                        className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-gradient-to-br from-acento to-acento-2 text-texto"
+                      >
+                        <Check className="h-2.5 w-2.5" />
+                      </motion.div>
                     )}
                   </button>
                 );
@@ -218,7 +220,7 @@ export function SettingsModal() {
                         : 'hover:border-borde-fuerte hover:bg-superficie-hover'
                     }`}
                   >
-                    <div className="flex w-full items-center justify-between">
+                    <div className="flex w-full flex-col items-start gap-1 pr-3">
                       <div className={`text-sm font-medium ${isSelected ? 'text-texto' : 'text-texto-suave'}`}>
                         {size.name}
                       </div>
@@ -238,8 +240,10 @@ export function SettingsModal() {
                     {isSelected && (
                       <motion.div
                         layoutId="terminal-font-size-indicator"
-                        className="absolute -top-px -right-px h-3 w-3 rounded-bl-lg rounded-tr-2xl bg-acento"
-                      />
+                        className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-gradient-to-br from-acento to-acento-2 text-texto"
+                      >
+                        <Check className="h-2.5 w-2.5" />
+                      </motion.div>
                     )}
                   </button>
                 );
@@ -278,8 +282,10 @@ export function SettingsModal() {
                     {isSelected && (
                       <motion.div
                         layoutId="cursor-style-indicator"
-                        className="absolute -top-px -right-px h-3 w-3 rounded-bl-lg rounded-tr-2xl bg-acento"
-                      />
+                        className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-gradient-to-br from-acento to-acento-2 text-texto"
+                      >
+                        <Check className="h-2.5 w-2.5" />
+                      </motion.div>
                     )}
                   </button>
                 );
@@ -318,8 +324,10 @@ export function SettingsModal() {
                     {isSelected && (
                       <motion.div
                         layoutId="scrollback-indicator"
-                        className="absolute -top-px -right-px h-3 w-3 rounded-bl-lg rounded-tr-2xl bg-acento"
-                      />
+                        className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-gradient-to-br from-acento to-acento-2 text-texto"
+                      >
+                        <Check className="h-2.5 w-2.5" />
+                      </motion.div>
                     )}
                   </button>
                 );
@@ -355,8 +363,8 @@ export function SettingsModal() {
                 }`}
               >
                 <span
-                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-texto shadow transition-transform ${
-                    (settings.logCommands ?? false) ? 'translate-x-[22px]' : 'translate-x-0.5'
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-texto shadow transition-[left] ${
+                    (settings.logCommands ?? false) ? 'left-[22px]' : 'left-0.5'
                   }`}
                 />
               </span>

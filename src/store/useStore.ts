@@ -96,7 +96,7 @@ export const useStore = create<AppStore>()(
           get().addToast({
             type: 'error',
             title: 'Error',
-            message: 'Failed to initialize application',
+            message: 'No se pudo iniciar la aplicación',
           });
         }
       },
@@ -128,8 +128,8 @@ export const useStore = create<AppStore>()(
           if (showToast) {
             get().addToast({
               type: 'success',
-              title: 'Session Created',
-              message: `Session "${session.name}" has been saved`,
+              title: 'Sesión creada',
+              message: `Se ha guardado la sesión "${session.name}"`,
             });
           }
         } catch (error) {
@@ -138,7 +138,7 @@ export const useStore = create<AppStore>()(
             get().addToast({
               type: 'error',
               title: 'Error',
-              message: 'Failed to save session',
+              message: 'No se pudo guardar la sesión',
             });
           }
           throw error;
@@ -161,8 +161,8 @@ export const useStore = create<AppStore>()(
           if (showToast && !('groupId' in updates && Object.keys(updates).length === 1)) {
             get().addToast({
               type: 'success',
-              title: 'Session Updated',
-              message: `Session "${updated.name}" has been updated`,
+              title: 'Sesión actualizada',
+              message: `Se ha actualizado la sesión "${updated.name}"`,
             });
           }
         } catch (error) {
@@ -170,7 +170,7 @@ export const useStore = create<AppStore>()(
           get().addToast({
             type: 'error',
             title: 'Error',
-            message: 'Failed to update session',
+            message: 'No se pudo actualizar la sesión',
           });
           throw error;
         }
@@ -186,15 +186,15 @@ export const useStore = create<AppStore>()(
       }));
       get().addToast({
         type: 'success',
-        title: 'Session Deleted',
-        message: 'Session has been removed',
+        title: 'Sesión eliminada',
+        message: 'Se ha eliminado la sesión',
       });
     } catch (error) {
       console.error('Failed to delete session:', error);
       get().addToast({
         type: 'error',
         title: 'Error',
-        message: 'Failed to delete session',
+        message: 'No se pudo eliminar la sesión',
       });
       throw error;
     }
@@ -224,15 +224,15 @@ export const useStore = create<AppStore>()(
       set((state) => ({ commands: [...state.commands, command] }));
       get().addToast({
         type: 'success',
-        title: 'Command Saved',
-        message: `Command "${command.name}" has been saved`,
+        title: 'Comando guardado',
+        message: `Se ha guardado el comando "${command.name}"`,
       });
     } catch (error) {
       console.error('Failed to save command:', error);
       get().addToast({
         type: 'error',
         title: 'Error',
-        message: 'Failed to save command',
+        message: 'No se pudo guardar el comando',
       });
       throw error;
     }
@@ -246,15 +246,15 @@ export const useStore = create<AppStore>()(
       }));
       get().addToast({
         type: 'success',
-        title: 'Command Deleted',
-        message: 'Command has been removed',
+        title: 'Comando eliminado',
+        message: 'Se ha eliminado el comando',
       });
     } catch (error) {
       console.error('Failed to delete command:', error);
       get().addToast({
         type: 'error',
         title: 'Error',
-        message: 'Failed to delete command',
+        message: 'No se pudo eliminar el comando',
       });
       throw error;
     }
@@ -274,15 +274,15 @@ export const useStore = create<AppStore>()(
       }));
       get().addToast({
         type: 'success',
-        title: 'Command Updated',
-        message: `Command "${updated.name}" has been updated`,
+        title: 'Comando actualizado',
+        message: `Se ha actualizado el comando "${updated.name}"`,
       });
     } catch (error) {
       console.error('Failed to update command:', error);
       get().addToast({
         type: 'error',
         title: 'Error',
-        message: 'Failed to update command',
+        message: 'No se pudo actualizar el comando',
       });
       throw error;
     }
@@ -509,15 +509,15 @@ export const useStore = create<AppStore>()(
       }));
       get().addToast({
         type: 'success',
-        title: 'Group Deleted',
-        message: `Group "${group.name}" has been removed`,
+        title: 'Carpeta eliminada',
+        message: `Se ha eliminado la carpeta "${group.name}"`,
       });
     } catch (error) {
       console.error('Failed to delete group:', error);
       get().addToast({
         type: 'error',
         title: 'Error',
-        message: 'Failed to delete group',
+        message: 'No se pudo eliminar la carpeta',
       });
       throw error;
     }

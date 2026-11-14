@@ -312,36 +312,35 @@ export function TerminalView({ tabId, isActive }: TerminalViewProps) {
   if (!tab || !session) return null;
 
   const statusConfig = {
-    idle: { color: 'text-zinc-500', label: 'Inactivo' },
-    connecting: { color: 'text-yellow-500 animate-pulse', label: 'Conectando...' },
-    connected: { color: 'text-green-500', label: 'Conectado' },
-    disconnected: { color: 'text-zinc-500', label: 'Desconectado' },
-    error: { color: 'text-red-500', label: 'Error' },
+    idle: { color: 'text-texto-tenue', label: 'Inactivo' },
+    connecting: { color: 'text-aviso animate-pulse', label: 'Conectando...' },
+    connected: { color: 'text-exito', label: 'Conectado' },
+    disconnected: { color: 'text-texto-tenue', label: 'Desconectado' },
+    error: { color: 'text-peligro', label: 'Error' },
   }[tab.status];
 
   const isConnected = tab.status === 'connected';
 
   return (
     <div
-      className={`absolute inset-0 flex overflow-hidden ${isActive ? '' : 'invisible pointer-events-none'}`}
+      className={`absolute inset-0 flex overflow-hidden p-3 ${isActive ? '' : 'invisible pointer-events-none'}`}
       aria-hidden={!isActive}
-      style={{ backgroundColor: terminalBackground }}
     >
       {/* Main Terminal Section */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden rounded-2xl border border-borde shadow-[0_12px_32px_rgba(0,0,0,0.25)]">
         {/* Tab Header */}
-        <div className="flex items-center justify-between px-4 py-2 border-b shrink-0 bg-white/80 dark:bg-zinc-900/80 border-zinc-200 dark:border-white/5">
+        <div className="flex items-center justify-between px-4 py-2 border-b shrink-0 bg-panel backdrop-blur-2xl border-borde">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <Circle className={`w-2.5 h-2.5 ${statusConfig.color}`} fill="currentColor" />
-              <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-900/5 dark:bg-white/5 text-zinc-600 dark:text-zinc-400">
+              <span className={`text-[11px] px-2 py-0.5 rounded-full bg-superficie ${statusConfig.color}`}>
                 {statusConfig.label}
               </span>
             </div>
-            <span className="text-sm font-medium text-zinc-900 dark:text-white" title={tab.title}>
+            <span className="text-sm font-medium text-texto" title={tab.title}>
               {tab.title}
             </span>
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-texto-tenue">
               {session.username}@{session.host}:{session.port}
             </span>
           </div>
@@ -350,7 +349,7 @@ export function TerminalView({ tabId, isActive }: TerminalViewProps) {
               <button
                 onClick={handleStop}
                 aria-label="Desconectar"
-                className="p-1.5 rounded-lg transition-colors hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-orange-600 dark:hover:text-orange-400"
+                className="btn-icono hover:text-aviso"
                 title="Desconectar"
               >
                 <StopCircle className="w-4 h-4" />
@@ -359,7 +358,7 @@ export function TerminalView({ tabId, isActive }: TerminalViewProps) {
             <button
               onClick={handleCopyOutput}
               aria-label="Copiar todo"
-              className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-blue-700 dark:hover:text-blue-300"
+              className="btn-icono px-2 flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:text-acento"
               title="Copiar todo"
             >
               <Copy className="w-4 h-4" />
@@ -368,7 +367,7 @@ export function TerminalView({ tabId, isActive }: TerminalViewProps) {
             <button
               onClick={handleCopyLastCommand}
               aria-label="Copiar último bloque"
-              className="px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-emerald-700 dark:hover:text-emerald-300"
+              className="btn-icono px-2 flex items-center gap-1 text-xs font-medium uppercase tracking-tight hover:text-exito"
               title="Copiar último comando/bloque"
             >
               <ClipboardList className="w-4 h-4" />
@@ -378,7 +377,7 @@ export function TerminalView({ tabId, isActive }: TerminalViewProps) {
               <button
                 onClick={handleReconnect}
                 aria-label="Reconectar"
-                className="p-1.5 rounded-lg transition-colors hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-green-600 dark:hover:text-green-400"
+                className="btn-icono hover:text-exito"
                 title="Reconectar"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -387,7 +386,7 @@ export function TerminalView({ tabId, isActive }: TerminalViewProps) {
             <button
               onClick={handleClose}
               aria-label="Cerrar pestaña"
-              className="p-1.5 rounded-lg transition-colors hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
+              className="btn-icono hover:text-peligro"
               title="Cerrar"
             >
               <X className="w-4 h-4" />
@@ -397,13 +396,17 @@ export function TerminalView({ tabId, isActive }: TerminalViewProps) {
 
         {/* Terminal Container: padding lives on the wrapper so FitAddon
             measures the inner element's exact content box */}
-        <div className="relative flex-1 min-h-0 overflow-hidden px-2 pt-1 pb-2" onClick={() => focus()}>
+        <div
+          className="relative flex-1 min-h-0 overflow-hidden px-2 pt-1 pb-2"
+          style={{ backgroundColor: terminalBackground }}
+          onClick={() => focus()}
+        >
           {searchOpen && (
             <div
-              className="absolute top-2 right-4 z-10 flex items-center gap-1 px-2 py-1.5 rounded-lg border border-zinc-300 dark:border-white/10 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl shadow-lg"
+              className="modal-cristal absolute top-2 right-4 z-10 flex items-center gap-1 px-2 py-1.5 rounded-2xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <Search className="w-4 h-4 text-zinc-500 shrink-0" />
+              <Search className="w-4 h-4 text-texto-tenue shrink-0" />
               <input
                 ref={searchInputRef}
                 type="text"
@@ -414,25 +417,25 @@ export function TerminalView({ tabId, isActive }: TerminalViewProps) {
                 }}
                 onKeyDown={handleSearchKeyDown}
                 placeholder="Buscar... (Enter / Shift+Enter)"
-                className="w-52 bg-transparent text-sm text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none"
+                className="campo w-52"
               />
               <button
                 onClick={() => findPrevious(searchQuery)}
-                className="p-1 rounded hover:bg-zinc-900/5 dark:hover:bg-white/10 text-zinc-600 dark:text-zinc-400"
+                className="btn-icono"
                 title="Anterior (Shift+Enter)"
               >
                 <ChevronUp className="w-4 h-4" />
               </button>
               <button
                 onClick={() => findNext(searchQuery)}
-                className="p-1 rounded hover:bg-zinc-900/5 dark:hover:bg-white/10 text-zinc-600 dark:text-zinc-400"
+                className="btn-icono"
                 title="Siguiente (Enter)"
               >
                 <ChevronDown className="w-4 h-4" />
               </button>
               <button
                 onClick={closeSearch}
-                className="p-1 rounded hover:bg-zinc-900/5 dark:hover:bg-white/10 text-zinc-600 dark:text-zinc-400"
+                className="btn-icono"
                 title="Cerrar (Esc)"
               >
                 <X className="w-4 h-4" />

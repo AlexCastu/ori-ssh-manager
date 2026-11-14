@@ -7,6 +7,7 @@ import { logSessionEvent, isPasswordPrompt } from '../utils/sessionLog';
 
 // How much recent output we keep per channel to feed the password-prompt guard
 const OUTPUT_TAIL_LIMIT = 256;
+const HOST_KEY_ERROR_TITLE = 'No se pudo verificar la clave del servidor';
 
 interface PtyOutputPayload {
   channelId: string;
@@ -38,49 +39,49 @@ function classifyError(error: string): { title: string; message: string } {
 
   if (errorLower.includes('host key')) {
     return {
-      title: 'Host Key Verification Failed',
+      title: HOST_KEY_ERROR_TITLE,
       message: error,
     };
   }
   if (errorLower.includes('auth') || errorLower.includes('permission denied')) {
     return {
-      title: 'Authentication Failed',
-      message: 'Invalid username, password, or SSH key. Please check your credentials.',
+      title: 'Autenticación fallida',
+      message: 'Usuario, contraseña o clave SSH incorrectos. Revisa tus credenciales.',
     };
   }
   if (errorLower.includes('timeout') || errorLower.includes('timed out')) {
     return {
-      title: 'Connection Timeout',
-      message: 'Server took too long to respond. Check if the host is reachable.',
+      title: 'Tiempo de conexión agotado',
+      message: 'El servidor tardó demasiado en responder. Comprueba que esté accesible.',
     };
   }
   if (errorLower.includes('refused') || errorLower.includes('connection refused')) {
     return {
-      title: 'Connection Refused',
-      message: 'Server refused the connection. Verify the port and firewall settings.',
+      title: 'Conexión rechazada',
+      message: 'El servidor rechazó la conexión. Revisa el puerto y el cortafuegos.',
     };
   }
   if (errorLower.includes('unreachable') || errorLower.includes('no route')) {
     return {
-      title: 'Host Unreachable',
-      message: 'Cannot reach the server. Check network connectivity.',
+      title: 'Servidor inaccesible',
+      message: 'No se puede acceder al servidor. Comprueba la conexión de red.',
     };
   }
   if (errorLower.includes('key') && errorLower.includes('not found')) {
     return {
-      title: 'SSH Key Not Found',
-      message: 'The specified private key file does not exist.',
+      title: 'Clave SSH no encontrada',
+      message: 'El archivo de clave privada indicado no existe.',
     };
   }
   if (errorLower.includes('dns') || errorLower.includes('resolve')) {
     return {
-      title: 'DNS Resolution Failed',
-      message: 'Could not resolve hostname. Check the server address.',
+      title: 'Error de resolución DNS',
+      message: 'No se pudo resolver el nombre del servidor. Revisa su dirección.',
     };
   }
 
   return {
-    title: 'Connection Failed',
+    title: 'Conexión fallida',
     message: error,
   };
 }
@@ -163,8 +164,8 @@ class SSHService {
         if (config && !isIntentionalClose) {
           addToast({
             type: 'warning',
-            title: 'Connection Lost',
-            message: 'Attempting to reconnect...',
+            title: 'Conexión perdida',
+            message: 'Intentando reconectar...',
             duration: 3000,
           });
           this.scheduleReconnect(tab.id, 1);
@@ -277,8 +278,8 @@ class SSHService {
       const { addToast } = useStore.getState();
       addToast({
         type: 'error',
-        title: 'Reconnection Failed',
-        message: `Could not reconnect after ${maxAttempts} attempts.`,
+        title: 'Reconexión fallida',
+        message: `No se pudo reconectar después de ${maxAttempts} intentos.`,
         duration: 5000,
       });
       this.disableAutoReconnect(tabId);
@@ -301,8 +302,8 @@ class SSHService {
         this.startReading(channelId, config.onData);
         addToast({
           type: 'success',
-          title: 'Reconnected',
-          message: `Successfully reconnected to ${config.session.name}`,
+          title: 'Reconectado',
+          message: `Se ha restablecido la conexión con ${config.session.name}`,
         });
       } else if (this.isTabOpen(tabId)) {
         // Try again
@@ -348,8 +349,8 @@ class SSHService {
       );
       addToast({
         type: 'success',
-        title: 'Connected',
-        message: `Connected to ${session.name}`,
+        title: 'Conectado',
+        message: `Conectado a ${session.name}`,
       });
       return channelId;
     } catch (error) {
@@ -365,7 +366,7 @@ class SSHService {
         type: 'error',
         title: errorInfo.title,
         message: errorInfo.message,
-        duration: errorInfo.title === 'Host Key Verification Failed' ? 12000 : 5000,
+        duration: errorInfo.title === HOST_KEY_ERROR_TITLE ? 12000 : 5000,
         action: this.buildHostKeyAction(errorText),
       });
       return null;
@@ -387,7 +388,7 @@ class SSHService {
           .then((removed) => {
             useStore.getState().addToast({
               type: removed ? 'success' : 'warning',
-              title: removed ? 'Host key olvidada' : 'Sin cambios',
+              title: removed ? 'Clave del servidor olvidada' : 'Sin cambios',
               message: removed
                 ? 'Pulsa Reconectar para confiar en la nueva clave.'
                 : 'No se encontró la entrada en known_hosts.',
@@ -398,7 +399,7 @@ class SSHService {
             useStore.getState().addToast({
               type: 'error',
               title: 'Error',
-              message: 'No se pudo eliminar la host key',
+              message: 'No se pudo eliminar la clave del servidor',
             });
           });
       },
@@ -414,8 +415,8 @@ class SSHService {
       console.error('Failed to send:', error);
       addToast({
         type: 'error',
-        title: 'Send Failed',
-        message: 'Could not send data to server',
+        title: 'Error al enviar',
+        message: 'No se pudieron enviar los datos al servidor',
         duration: 2500,
       });
     }

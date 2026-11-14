@@ -437,14 +437,14 @@ function GroupSection({ group, h }: { group: SessionGroup; h: TreeHandlers }) {
         <span className="text-xs text-texto-tenue tabular-nums">{groupSessions.length}</span>
 
         {/* Group Menu */}
-        <div className="relative">
+        <div className={`relative shrink-0 ${menuAnchor ? '' : 'hidden group-hover:block group-focus-within:block'}`}>
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect());
             }}
-            className="btn-icono opacity-70 group-hover:opacity-100 cursor-pointer"
+            className="btn-icono cursor-pointer"
             title="Acciones de carpeta"
           >
             <MoreVertical className="w-3.5 h-3.5" />

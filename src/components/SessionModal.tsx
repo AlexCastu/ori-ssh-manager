@@ -186,27 +186,28 @@ export function SessionModal() {
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={() => !isLoading && closeSessionModal()}
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
       />
 
       {/* Modal */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative w-full max-w-3xl bg-white/95 dark:bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto"
+        initial={{ opacity: 0, scale: 0.97 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.97 }}
+        transition={{ duration: 0.18 }}
+        className="relative w-full max-w-3xl modal-cristal text-texto max-h-[90vh] overflow-y-auto"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-white/5 sticky top-0 bg-white/95 dark:bg-zinc-900/90 backdrop-blur-xl z-10">
+        <div className="flex items-center justify-between p-4 border-b border-borde sticky top-0 bg-modal backdrop-blur-2xl z-10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
-              <Server className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-acento to-acento-2 flex items-center justify-center">
+              <Server className="w-5 h-5 text-texto" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">
+              <h2 className="text-lg font-semibold text-texto">
                 {isEdit ? 'Editar sesión' : 'Nueva sesión'}
               </h2>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              <p className="text-sm text-texto-suave">
                 {isEdit ? 'Actualiza los datos de la sesión SSH' : 'Añade una nueva sesión SSH'}
               </p>
             </div>
@@ -214,7 +215,7 @@ export function SessionModal() {
           <button
             onClick={closeSessionModal}
             disabled={isLoading}
-            className="p-2 rounded-lg hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
+            className="btn-icono"
           >
             <X className="w-5 h-5" />
           </button>
@@ -227,14 +228,14 @@ export function SessionModal() {
           <div className="space-y-4">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Nombre de la sesión
             </label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+              className="campo"
               placeholder="Mi servidor"
               required
             />
@@ -243,30 +244,30 @@ export function SessionModal() {
           {/* Host & Port */}
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                Host
+              <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
+                Servidor
               </label>
               <div className="relative">
-                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <Globe className="absolute left-3 inset-y-0 my-auto w-4 h-4 text-texto-tenue" />
                 <input
                   type="text"
                   value={formData.host}
                   onChange={(e) => setFormData({ ...formData, host: e.target.value })}
-                  className="w-full pl-9 pr-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+                  className="campo pl-9"
                   placeholder="192.168.1.100"
                   required
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                Port
+              <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
+                Puerto
               </label>
               <input
                 type="number"
                 value={formData.port}
                 onChange={(e) => setFormData({ ...formData, port: parseInt(e.target.value) || 22 })}
-                className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+                className="campo"
                 min={1}
                 max={65535}
               />
@@ -275,14 +276,14 @@ export function SessionModal() {
 
           {/* Username */}
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Usuario
             </label>
             <input
               type="text"
               value={formData.username}
               onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+              className="campo"
               placeholder="root"
               required
             />
@@ -290,17 +291,17 @@ export function SessionModal() {
 
           {/* Auth Method Toggle */}
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-2">
               Método de autenticación
             </label>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, authMethod: 'password' })}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border transition-colors ${
                   formData.authMethod === 'password'
-                    ? 'bg-blue-500/20 border-blue-500/50 text-blue-600 dark:text-blue-400'
-                    : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-white/20'
+                    ? 'bg-superficie-fuerte border-acento text-texto'
+                    : 'border-borde text-texto-suave hover:border-borde-fuerte hover:bg-superficie-hover'
                 }`}
               >
                 <Key className="w-4 h-4" />
@@ -309,10 +310,10 @@ export function SessionModal() {
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, authMethod: 'key' })}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border transition-colors ${
                   formData.authMethod === 'key'
-                    ? 'bg-green-500/20 border-green-500/50 text-green-600 dark:text-green-400'
-                    : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-white/20'
+                    ? 'bg-superficie-fuerte border-acento text-texto'
+                    : 'border-borde text-texto-suave hover:border-borde-fuerte hover:bg-superficie-hover'
                 }`}
               >
                 <FileKey className="w-4 h-4" />
@@ -321,12 +322,12 @@ export function SessionModal() {
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, authMethod: 'agent' })}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border transition-colors ${
                   formData.authMethod === 'agent'
-                    ? 'bg-purple-500/20 border-purple-500/50 text-purple-600 dark:text-purple-400'
-                    : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-white/20'
+                    ? 'bg-superficie-fuerte border-acento text-texto'
+                    : 'border-borde text-texto-suave hover:border-borde-fuerte hover:bg-superficie-hover'
                 }`}
-                title="Use the running ssh-agent (no credentials stored)"
+                title="Usar el ssh-agent en ejecución (sin guardar credenciales)"
               >
                 <KeyRound className="w-4 h-4" />
                 <span className="text-sm">Agente</span>
@@ -336,21 +337,21 @@ export function SessionModal() {
 
           {/* Password / SSH Key / Agent fields */}
           {formData.authMethod === 'agent' ? (
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-texto-tenue">
               Autenticación mediante el ssh-agent en ejecución. No se guarda ninguna credencial.
             </p>
           ) : formData.authMethod === 'password' ? (
             <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                Password
+              <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
+                Contraseña
               </label>
               <div className="relative">
-                <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <Key className="absolute left-3 inset-y-0 my-auto w-4 h-4 text-texto-tenue" />
                 <input
                   type="password"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full pl-9 pr-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+                  className="campo pl-9"
                   placeholder={isEdit ? 'Dejar vacío para mantener la actual' : '••••••••'}
                 />
               </div>
@@ -358,36 +359,36 @@ export function SessionModal() {
           ) : (
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+                <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
                   Ruta de la clave privada
                 </label>
                 <div className="relative">
-                  <FileKey className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                  <FileKey className="absolute left-3 inset-y-0 my-auto w-4 h-4 text-texto-tenue" />
                   <input
                     type="text"
                     value={formData.privateKeyPath}
                     onChange={(e) => setFormData({ ...formData, privateKeyPath: e.target.value })}
-                    className="w-full pl-9 pr-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50"
+                    className="campo pl-9"
                     placeholder="~/.ssh/id_rsa"
                     required={formData.authMethod === 'key'}
                   />
                 </div>
-                <p className="text-xs text-zinc-500 mt-1">
-                  Full path to your private key file (e.g., ~/.ssh/id_rsa)
+                <p className="text-xs text-texto-tenue mt-1">
+                  Ruta completa del archivo de clave privada (p. ej., ~/.ssh/id_rsa)
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                  Passphrase de la clave (opcional)
+                <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
+                  Frase de contraseña de la clave (opcional)
                 </label>
                 <div className="relative">
-                  <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                  <Key className="absolute left-3 inset-y-0 my-auto w-4 h-4 text-texto-tenue" />
                   <input
                     type="password"
                     value={formData.privateKeyPassphrase}
                     onChange={(e) => setFormData({ ...formData, privateKeyPassphrase: e.target.value })}
-                    className="w-full pl-9 pr-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50"
-                    placeholder={isEdit ? 'Dejar vacío para mantener la actual' : 'Leave empty if key has no passphrase'}
+                    className="campo pl-9"
+                    placeholder={isEdit ? 'Dejar vacío para mantener la actual' : 'Dejar vacío si la clave no tiene frase de contraseña'}
                   />
                 </div>
               </div>
@@ -398,7 +399,7 @@ export function SessionModal() {
           <div className="space-y-4">
           {/* Color */}
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Color
             </label>
             <div className="flex gap-2">
@@ -408,18 +409,20 @@ export function SessionModal() {
                   type="button"
                   onClick={() => setFormData({ ...formData, color: color.value })}
                   className={`
-                    w-8 h-8 rounded-lg ${color.class} transition-transform
-                    ${formData.color === color.value ? 'ring-2 ring-zinc-900 dark:ring-white ring-offset-2 ring-offset-white dark:ring-offset-zinc-900 scale-110' : 'hover:scale-105'}
+                    w-8 h-8 rounded-xl border flex items-center justify-center transition-colors
+                    ${formData.color === color.value ? 'border-acento bg-superficie-fuerte' : 'border-borde hover:bg-superficie-hover'}
                   `}
                   title={color.label}
-                />
+                >
+                  <span className={`w-5 h-5 rounded-md ${color.class}`} />
+                </button>
               ))}
             </div>
           </div>
 
           {/* Icon */}
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Icono
             </label>
             <div className="flex flex-wrap gap-1.5">
@@ -427,10 +430,10 @@ export function SessionModal() {
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, icon: '' })}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-colors ${
+                className={`w-8 h-8 flex items-center justify-center rounded-xl border transition-colors ${
                   formData.icon === ''
-                    ? 'bg-blue-500/20 border-blue-500/50 text-blue-600 dark:text-blue-400'
-                    : 'border-zinc-200 dark:border-white/10 text-zinc-500 hover:border-zinc-300 dark:hover:border-white/20'
+                    ? 'bg-superficie-fuerte border-acento text-texto'
+                    : 'border-borde text-texto-tenue hover:border-borde-fuerte hover:bg-superficie-hover'
                 }`}
                 title="Punto (sin icono)"
               >
@@ -441,10 +444,10 @@ export function SessionModal() {
                   key={name}
                   type="button"
                   onClick={() => setFormData({ ...formData, icon: name })}
-                  className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-colors ${
+                  className={`w-8 h-8 flex items-center justify-center rounded-xl border transition-colors ${
                     formData.icon === name
-                      ? 'bg-blue-500/20 border-blue-500/50 text-blue-600 dark:text-blue-400'
-                      : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-white/20'
+                      ? 'bg-superficie-fuerte border-acento text-texto'
+                      : 'border-borde text-texto-suave hover:border-borde-fuerte hover:bg-superficie-hover'
                   }`}
                   title={name}
                 >
@@ -456,14 +459,14 @@ export function SessionModal() {
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Notas (opcional)
             </label>
             <textarea
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
               rows={3}
-              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 resize-none"
+              className="campo resize-none"
               placeholder="Comentarios, contactos, recordatorios..."
             />
           </div>
@@ -471,7 +474,7 @@ export function SessionModal() {
           </div>
 
           {/* Jump Host Toggle */}
-          <div className="border-t border-zinc-200 dark:border-white/5 pt-4">
+          <div className="border-t border-borde pt-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -482,26 +485,26 @@ export function SessionModal() {
                     addHop();
                   }
                 }}
-                className="w-4 h-4 rounded border-zinc-300 dark:border-white/20 bg-zinc-100 dark:bg-zinc-800 text-blue-500 focus:ring-blue-500/50"
+                className="w-4 h-4 rounded border-borde-fuerte bg-hundido accent-acento focus:ring-acento"
               />
-              <span className="text-sm text-zinc-700 dark:text-zinc-300">
+              <span className="text-sm text-texto-suave">
                 Usar saltos (cadena de máquinas de salto)
               </span>
             </label>
           </div>
 
           {/* This session can itself be reused as a jump host by others */}
-          <div className="border-t border-zinc-200 dark:border-white/5 pt-4">
+          <div className="border-t border-borde pt-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={formData.usableAsJump}
                 onChange={(e) => setFormData({ ...formData, usableAsJump: e.target.checked })}
-                className="w-4 h-4 rounded border-zinc-300 dark:border-white/20 bg-zinc-100 dark:bg-zinc-800 text-blue-500 focus:ring-blue-500/50"
+                className="w-4 h-4 rounded border-borde-fuerte bg-hundido accent-acento focus:ring-acento"
               />
-              <span className="text-sm text-zinc-700 dark:text-zinc-300">
+              <span className="text-sm text-texto-suave">
                 Usar como máquina de salto
-                <span className="block text-xs text-zinc-500">
+                <span className="block text-xs text-texto-tenue">
                   Otras sesiones podrán elegir esta como salto para llegar a su destino
                 </span>
               </span>
@@ -519,16 +522,16 @@ export function SessionModal() {
               {formData.jumpHops.map((hop, index) => (
                 <div
                   key={index}
-                  className="space-y-3 p-3 bg-zinc-100/80 dark:bg-zinc-800/30 rounded-lg border border-zinc-200 dark:border-white/5"
+                  className="tarjeta space-y-3 p-3"
                 >
                   <div className="flex items-center justify-between">
-                    <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                    <div className="text-[11px] text-texto-tenue uppercase tracking-wider">
                       Salto {index + 1} de {formData.jumpHops.length}
                     </div>
                     <button
                       type="button"
                       onClick={() => removeHop(index)}
-                      className="p-1 rounded-lg hover:bg-zinc-900/5 dark:hover:bg-white/10 text-zinc-500 hover:text-red-500 transition-colors"
+                      className="btn-icono hover:text-peligro"
                       title="Eliminar salto"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -538,18 +541,18 @@ export function SessionModal() {
                     type="text"
                     value={hop.name ?? ''}
                     onChange={(e) => updateHop(index, { name: e.target.value })}
-                    className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
+                    className="campo"
                     placeholder="Nombre del salto (opcional, p. ej. Bastión DMZ)"
                   />
                   {jumpSessions.length > 0 && (
-                    <div className="flex gap-1 rounded-lg bg-zinc-200/60 dark:bg-zinc-800 p-0.5 text-xs">
+                    <div className="flex gap-1 rounded-full bg-hundido p-0.5 text-xs">
                       <button
                         type="button"
                         onClick={() => updateHop(index, { refSessionId: null })}
-                        className={`flex-1 rounded-md px-2 py-1 transition-colors ${
+                        className={`flex-1 rounded-full border px-2 py-1 transition-colors ${
                           !hop.refSessionId
-                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow'
-                            : 'text-zinc-500'
+                            ? 'border-acento bg-superficie-fuerte text-texto'
+                            : 'border-transparent text-texto-tenue hover:bg-superficie-hover'
                         }`}
                       >
                         Manual
@@ -559,10 +562,10 @@ export function SessionModal() {
                         onClick={() =>
                           updateHop(index, { refSessionId: hop.refSessionId ?? jumpSessions[0].id })
                         }
-                        className={`flex-1 rounded-md px-2 py-1 transition-colors ${
+                        className={`flex-1 rounded-full border px-2 py-1 transition-colors ${
                           hop.refSessionId
-                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow'
-                            : 'text-zinc-500'
+                            ? 'border-acento bg-superficie-fuerte text-texto'
+                            : 'border-transparent text-texto-tenue hover:bg-superficie-hover'
                         }`}
                       >
                         Máquina de salto
@@ -573,7 +576,7 @@ export function SessionModal() {
                     <select
                       value={hop.refSessionId}
                       onChange={(e) => updateHop(index, { refSessionId: e.target.value })}
-                      className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
+                      className="campo"
                     >
                       {jumpSessions.map((js) => (
                         <option key={js.id} value={js.id}>
@@ -589,8 +592,8 @@ export function SessionModal() {
                         type="text"
                         value={hop.host}
                         onChange={(e) => updateHop(index, { host: e.target.value })}
-                        className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
-                        placeholder="Host del bastión"
+                        className="campo"
+                        placeholder="Servidor del bastión"
                         required
                       />
                     </div>
@@ -601,8 +604,8 @@ export function SessionModal() {
                         onChange={(e) =>
                           updateHop(index, { port: parseInt(e.target.value) || 22 })
                         }
-                        className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
-                        placeholder="Port"
+                        className="campo"
+                        placeholder="Puerto"
                         min={1}
                         max={65535}
                       />
@@ -613,19 +616,19 @@ export function SessionModal() {
                       type="text"
                       value={hop.username}
                       onChange={(e) => updateHop(index, { username: e.target.value })}
-                      className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
-                      placeholder="Username (vacío = el de la sesión)"
+                      className="campo"
+                      placeholder="Usuario (vacío = el de la sesión)"
                     />
                     <select
                       value={hop.authMethod}
                       onChange={(e) =>
                         updateHop(index, { authMethod: e.target.value as AuthMethod })
                       }
-                      className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
+                      className="campo"
                     >
-                      <option value="password">Password</option>
-                      <option value="key">SSH Key</option>
-                      <option value="agent">SSH Agent</option>
+                      <option value="password">Contraseña</option>
+                      <option value="key">Clave SSH</option>
+                      <option value="agent">Agente SSH</option>
                     </select>
                   </div>
                   {hop.authMethod === 'password' && (
@@ -634,8 +637,8 @@ export function SessionModal() {
                         type="password"
                         value={hop.password}
                         onChange={(e) => updateHop(index, { password: e.target.value })}
-                        className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
-                        placeholder={isEdit ? 'Vacío = mantener actual' : 'Password'}
+                        className="campo"
+                        placeholder={isEdit ? 'Vacío = mantener actual' : 'Contraseña'}
                       />
                       {isEdit && !hop.password && !existingSession?.jumpHops?.some(
                         (stored) => !stored.refSessionId
@@ -643,7 +646,7 @@ export function SessionModal() {
                           && stored.port === hop.port
                           && stored.username === hop.username
                       ) && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        <p className="text-xs text-aviso mt-1">
                           Este salto es nuevo o ha cambiado. Escribe la contraseña.
                         </p>
                       )}
@@ -655,7 +658,7 @@ export function SessionModal() {
                         type="text"
                         value={hop.privateKeyPath}
                         onChange={(e) => updateHop(index, { privateKeyPath: e.target.value })}
-                        className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50 text-sm"
+                        className="campo"
                         placeholder="~/.ssh/id_rsa"
                       />
                       <input
@@ -664,8 +667,8 @@ export function SessionModal() {
                         onChange={(e) =>
                           updateHop(index, { privateKeyPassphrase: e.target.value })
                         }
-                        className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50 text-sm"
-                        placeholder={isEdit ? 'Passphrase (vacío = mantener)' : 'Passphrase (opcional)'}
+                        className="campo"
+                        placeholder={isEdit ? 'Frase de contraseña (vacío = mantener)' : 'Frase de contraseña (opcional)'}
                       />
                     </div>
                   )}
@@ -676,13 +679,13 @@ export function SessionModal() {
               <button
                 type="button"
                 onClick={addHop}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-zinc-300 dark:border-white/15 text-sm text-zinc-600 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                className="btn-secundario w-full flex items-center justify-center gap-2 text-sm hover:border-acento hover:text-acento"
               >
                 <Plus className="w-4 h-4" />
                 Añadir salto
               </button>
               {formData.jumpHops.length > 0 && (
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-texto-tenue">
                   Conexión: {formData.jumpHops.map((h) => h.host || '¿?').join(' → ')} →{' '}
                   {formData.host || 'destino'}
                 </p>
@@ -691,23 +694,23 @@ export function SessionModal() {
           )}
 
           {/* Actions */}
-          <div className="flex justify-end gap-3 pt-4 border-t border-zinc-200 dark:border-white/5">
+          <div className="flex justify-end gap-3 pt-4 border-t border-borde">
             <button
               type="button"
               onClick={closeSessionModal}
               disabled={isLoading}
-              className="px-4 py-2 rounded-lg border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-900/5 dark:hover:bg-white/5 transition-colors"
+              className="btn-secundario"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isLoading}
-              className="px-4 py-2 rounded-lg bg-blue-500 text-zinc-900 dark:text-white hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="btn-primario disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {isLoading ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-zinc-300 dark:border-white/30 border-t-white rounded-full animate-spin" />
+                  <div className="w-4 h-4 border-2 border-borde-fuerte border-t-texto rounded-full animate-spin" />
                   Guardando...
                 </>
               ) : (

@@ -29,17 +29,17 @@ export function ConfirmDialog({
 
   const Icon = danger ? Trash2 : AlertTriangle;
   const accent = danger
-    ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-    : 'bg-blue-500/10 text-blue-600 dark:text-blue-400';
+    ? 'bg-superficie text-peligro'
+    : 'bg-superficie text-acento';
   const confirmBtn = danger
-    ? 'bg-red-600 hover:bg-red-700'
-    : 'bg-blue-600 hover:bg-blue-700';
+    ? 'rounded-full px-5 py-2 font-medium text-texto bg-peligro shadow-lg transition hover:brightness-110 disabled:opacity-50'
+    : 'btn-primario';
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onCancel}
         aria-label={cancelLabel}
         disabled={busy}
@@ -48,15 +48,15 @@ export function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative w-full max-w-sm rounded-lg border border-zinc-300 bg-white p-4 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="modal-cristal relative w-full max-w-sm p-5 text-texto"
       >
         <div className="mb-4 flex items-start gap-3">
-          <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${accent}`}>
+          <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${accent}`}>
             <Icon className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</h2>
-            <p className="mt-1 text-sm leading-5 text-zinc-600 dark:text-zinc-400">{description}</p>
+            <h2 className="text-sm font-semibold text-texto">{title}</h2>
+            <p className="mt-1 text-sm leading-5 text-texto-suave">{description}</p>
           </div>
         </div>
         <div className="flex justify-end gap-2">
@@ -64,7 +64,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="rounded-md px-3 py-1.5 text-sm text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="btn-secundario text-sm disabled:cursor-not-allowed disabled:opacity-60"
           >
             {cancelLabel}
           </button>
@@ -72,7 +72,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${confirmBtn}`}
+            className={`inline-flex items-center gap-2 text-sm disabled:cursor-not-allowed ${confirmBtn}`}
           >
             {danger && <Trash2 className="h-4 w-4" />}
             {busy ? busyLabel : confirmLabel}

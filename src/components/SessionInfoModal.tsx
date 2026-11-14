@@ -63,26 +63,31 @@ const AUTH_LABEL: Record<AuthMethod, string> = {
 function HopNode({ data, selected }: NodeProps<Node<HopNodeData>>) {
   const Icon = data.tone === 'local' ? Laptop : data.tone === 'dest' ? Monitor : Server;
   const AuthIcon = data.authMethod ? AUTH_ICON[data.authMethod] : null;
-  const ring =
-    data.tone === 'dest'
-      ? data.connected
-        ? 'border-green-500'
-        : 'border-zinc-400 dark:border-zinc-600'
-      : data.tone === 'local'
-        ? 'border-blue-500'
-        : 'border-amber-500';
+  const ring = data.tone === 'dest' ? 'border-acento' : 'border-borde-fuerte';
 
   return (
     <div
-      className={`flex h-full w-full flex-col rounded-xl border-2 ${ring} bg-white dark:bg-zinc-800 shadow-lg px-3 py-2`}
+      className={`tarjeta flex h-full w-full flex-col border-2 ${ring} bg-panel backdrop-blur-2xl shadow-lg px-3 py-2`}
     >
-      <NodeResizer isVisible={selected} minWidth={150} minHeight={64} />
-      {data.tone !== 'local' && <Handle type="target" position={Position.Left} />}
-      {data.tone !== 'dest' && <Handle type="source" position={Position.Right} />}
+      <NodeResizer isVisible={selected} minWidth={150} minHeight={64} color="var(--acento)" />
+      {data.tone !== 'local' && (
+        <Handle
+          type="target"
+          position={Position.Left}
+          style={{ background: 'var(--acento)', borderColor: 'var(--borde-fuerte)' }}
+        />
+      )}
+      {data.tone !== 'dest' && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          style={{ background: 'var(--acento)', borderColor: 'var(--borde-fuerte)' }}
+        />
+      )}
       <div className="flex items-start gap-2">
-        <Icon className="w-4 h-4 mt-0.5 text-zinc-500 dark:text-zinc-300 flex-shrink-0" />
+        <Icon className="w-4 h-4 mt-0.5 text-texto-suave flex-shrink-0" />
         <span
-          className="min-w-0 flex-1 text-sm font-semibold text-zinc-900 dark:text-white break-all leading-tight"
+          className="min-w-0 flex-1 text-sm font-semibold text-texto break-all leading-tight"
           title={data.title}
         >
           {data.title}
@@ -90,24 +95,24 @@ function HopNode({ data, selected }: NodeProps<Node<HopNodeData>>) {
         {data.tone === 'dest' && (
           <span
             className={`mt-1 w-2.5 h-2.5 flex-shrink-0 rounded-full ${
-              data.connected ? 'bg-green-500' : 'bg-zinc-400'
+              data.connected ? 'bg-exito' : 'bg-texto-tenue'
             }`}
             title={data.connected ? 'Conectado' : 'Desconectado'}
           />
         )}
       </div>
       {data.subtitle && (
-        <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400 break-all" title={data.subtitle}>
+        <div className="mt-0.5 text-xs text-texto-tenue break-all" title={data.subtitle}>
           {data.subtitle}
         </div>
       )}
       {data.lines.map((line) => (
-        <div key={line} className="mt-1 text-xs text-zinc-600 dark:text-zinc-300 break-all">
+        <div key={line} className="mt-1 text-xs text-texto-suave break-all">
           {line}
         </div>
       ))}
       {AuthIcon && (
-        <div className="mt-1 flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+        <div className="mt-1 flex items-center gap-1 text-[11px] text-texto-tenue">
           <AuthIcon className="w-3 h-3" />
           {AUTH_LABEL[data.authMethod!]}
         </div>
@@ -151,7 +156,8 @@ function SessionMap({
           source: String(col - 1),
           target: String(col),
           animated: connected,
-          markerEnd: { type: MarkerType.ArrowClosed },
+          markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--texto-tenue)' },
+          style: { stroke: 'var(--texto-tenue)' },
         });
       }
       col++;
@@ -185,7 +191,7 @@ function SessionMap({
   if (!session) return null;
 
   return (
-    <div className="h-full w-full">
+    <div className="h-full w-full bg-hundido">
       <ReactFlow
         key={connected ? 'connected' : 'disconnected'}
         defaultNodes={nodes}
@@ -201,10 +207,10 @@ function SessionMap({
         panOnDrag
         proOptions={{ hideAttribution: true }}
       >
-        <Background />
+        <Background color="var(--borde-fuerte)" />
         <Controls showInteractive={false} />
         <Panel position="top-center">
-          <span className="rounded-md bg-zinc-900/70 px-2 py-1 text-[11px] text-zinc-200 backdrop-blur">
+          <span className="rounded-full bg-panel border border-borde px-3 py-1 text-[11px] text-texto-suave backdrop-blur-2xl">
             Rueda: zoom · arrastra el nodo: mover · clic + tiradores: redimensionar
           </span>
         </Panel>
@@ -288,42 +294,42 @@ function SessionLogView({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex h-full flex-col">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-white/5 px-4 py-2">
-        <div className="flex rounded-lg bg-zinc-100 dark:bg-zinc-800 p-0.5 text-xs">
+      <div className="flex items-center gap-2 border-b border-borde px-4 py-2">
+        <div className="flex rounded-full bg-hundido p-0.5 text-xs">
           {(['all', 'event', 'command'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-2.5 py-1 rounded-md transition-colors ${
+              className={`px-2.5 py-1 rounded-full transition-colors ${
                 filter === f
-                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow'
-                  : 'text-zinc-500 dark:text-zinc-400'
+                  ? 'bg-superficie-fuerte text-texto'
+                  : 'text-texto-tenue'
               }`}
             >
               {f === 'all' ? 'Todo' : f === 'event' ? 'Eventos' : 'Comandos'}
             </button>
           ))}
         </div>
-        <span className="text-xs text-zinc-400">{visible.length} entrada(s)</span>
+        <span className="text-xs text-texto-tenue">{visible.length} entrada(s)</span>
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={() => void reload()}
             title="Recargar"
-            className="p-1.5 rounded-lg hover:bg-zinc-900/5 dark:hover:bg-white/10 text-zinc-500"
+            className="btn-icono"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
           <button
             onClick={() => void handleExport()}
             title="Exportar"
-            className="p-1.5 rounded-lg hover:bg-zinc-900/5 dark:hover:bg-white/10 text-zinc-500"
+            className="btn-icono"
           >
             <Download className="w-4 h-4" />
           </button>
           <button
             onClick={() => setConfirmClear(true)}
             title="Limpiar"
-            className="p-1.5 rounded-lg hover:bg-red-500/10 text-zinc-500 hover:text-red-500"
+            className="btn-icono hover:text-peligro"
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -333,26 +339,26 @@ function SessionLogView({ sessionId }: { sessionId: string }) {
       {/* List */}
       <div className="flex-1 overflow-y-auto p-2 font-mono text-xs">
         {visible.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-zinc-400">
+          <div className="flex h-full items-center justify-center text-texto-tenue">
             Sin entradas
           </div>
         ) : (
           visible.map((log) => (
             <div
               key={log.id}
-              className="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-zinc-900/5 dark:hover:bg-white/5"
+              className="fila flex items-start gap-2"
             >
-              <span className="text-zinc-400 whitespace-nowrap">{formatTs(log.ts)}</span>
+              <span className="text-texto-tenue whitespace-nowrap">{formatTs(log.ts)}</span>
               <span
                 className={`px-1.5 rounded text-[10px] uppercase font-semibold ${
                   log.kind === 'command'
-                    ? 'bg-purple-500/15 text-purple-600 dark:text-purple-300'
-                    : 'bg-blue-500/15 text-blue-600 dark:text-blue-300'
+                    ? 'bg-superficie text-acento-2'
+                    : 'bg-superficie text-acento'
                 }`}
               >
                 {log.kind === 'command' ? 'cmd' : 'evt'}
               </span>
-              <span className="text-zinc-700 dark:text-zinc-200 break-all">{log.message}</span>
+              <span className="text-texto-suave break-all">{log.message}</span>
             </div>
           ))
         )}
@@ -401,38 +407,39 @@ function SessionInfoModalBody({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={closeInfoModal}
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
       />
 
       <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative flex h-[90vh] w-[90vw] flex-col overflow-hidden rounded-2xl border border-zinc-200 dark:border-white/10 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl shadow-2xl"
+        initial={{ opacity: 0, scale: 0.97 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.97 }}
+        transition={{ duration: 0.18 }}
+        className="modal-cristal relative flex h-[90vh] w-[90vw] flex-col overflow-hidden text-texto"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-white/5 p-4">
+        <div className="flex items-center justify-between border-b border-borde p-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/20">
-              <Network className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-acento to-acento-2">
+              <Network className="h-5 w-5 text-texto" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">{session.name}</h2>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              <h2 className="text-lg font-semibold text-texto">{session.name}</h2>
+              <p className="text-sm text-texto-suave">
                 {session.host}:{session.port}
               </p>
             </div>
           </div>
           <button
             onClick={closeInfoModal}
-            className="rounded-lg p-2 text-zinc-600 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white"
+            className="btn-icono"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-zinc-200 dark:border-white/5 px-4">
+        <div className="flex self-start gap-1 m-4 p-1 rounded-full bg-hundido border border-borde">
           {([
             { id: 'map', label: 'Mapa', icon: Network },
             { id: 'log', label: 'Registro', icon: ScrollText },
@@ -440,10 +447,10 @@ function SessionInfoModalBody({
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors ${
+              className={`flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm transition-colors ${
                 tab === id
-                  ? 'border-cyan-500 text-cyan-600 dark:text-cyan-400'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+                  ? 'border-acento bg-superficie-fuerte text-texto'
+                  : 'border-transparent text-texto-suave hover:bg-superficie-hover hover:text-texto'
               }`}
             >
               <Icon className="h-4 w-4" />

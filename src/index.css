@@ -4,6 +4,8 @@
 
 @layer base {
   :root {
+    /* Checkbox, radio y range nativos con el color de acento */
+    accent-color: #ff4fa3;
     --superficie: rgba(255, 255, 255, 0.06);
     --superficie-hover: rgba(255, 255, 255, 0.10);
     --superficie-fuerte: rgba(255, 255, 255, 0.15);
@@ -156,7 +158,8 @@
   overflow: hidden;
 }
 
-.react-flow__controls-button {
+/* .react-flow prefix: React Flow's own stylesheet loads later and would win */
+.react-flow .react-flow__controls-button {
   width: 28px;
   height: 28px;
   background: var(--superficie);
@@ -165,11 +168,11 @@
   color: var(--texto);
 }
 
-.react-flow__controls-button:hover {
+.react-flow .react-flow__controls-button:hover {
   background: var(--superficie-hover);
 }
 
-.react-flow__controls-button svg {
+.react-flow .react-flow__controls-button svg {
   fill: currentColor;
   max-width: 14px;
   max-height: 14px;

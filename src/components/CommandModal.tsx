@@ -67,32 +67,33 @@ export function CommandModal() {
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={closeCommandModal}
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
       />
 
       {/* Modal */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative w-full max-w-md bg-white/95 dark:bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl"
+        initial={{ opacity: 0, scale: 0.97 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.97 }}
+        transition={{ duration: 0.18 }}
+        className="relative w-full max-w-md modal-cristal text-texto"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-white/5">
+        <div className="flex items-center justify-between p-4 border-b border-borde">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
-              <Code className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-acento to-acento-2 flex items-center justify-center">
+              <Code className="w-5 h-5 text-texto" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">{isEdit ? 'Editar comando' : 'Guardar comando'}</h2>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              <h2 className="text-lg font-semibold text-texto">{isEdit ? 'Editar comando' : 'Guardar comando'}</h2>
+              <p className="text-sm text-texto-suave">
                 {isEdit ? 'Actualiza este comando' : 'Crea un comando rápido'}
               </p>
             </div>
           </div>
           <button
             onClick={closeCommandModal}
-            className="p-2 rounded-lg hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
+            className="btn-icono"
           >
             <X className="w-5 h-5" />
           </button>
@@ -101,42 +102,42 @@ export function CommandModal() {
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Nombre
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50"
+              className="campo"
               placeholder="Listar archivos"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Comando
             </label>
             <textarea
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 font-mono text-sm resize-none"
+              className="campo font-mono text-sm resize-none"
               placeholder="ls -la"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Notas (opcional)
             </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 resize-none"
+              className="campo resize-none"
               placeholder="Qué hace, avisos..."
             />
           </div>
@@ -148,27 +149,27 @@ export function CommandModal() {
                 checked={isGlobal || !sessionId}
                 disabled={!sessionId}
                 onChange={(e) => setIsGlobal(e.target.checked)}
-                className="w-4 h-4 rounded border-zinc-300 dark:border-white/20 bg-zinc-100 dark:bg-zinc-800 text-purple-500 focus:ring-purple-500/50"
+                className="w-4 h-4 rounded border-borde-fuerte bg-hundido accent-acento focus:ring-acento"
               />
-              <span className="text-sm text-zinc-700 dark:text-zinc-300">
+              <span className="text-sm text-texto-suave">
                 Comando global (disponible en todas las sesiones)
               </span>
             </label>
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-3 pt-4 border-t border-zinc-200 dark:border-white/5">
+          <div className="flex justify-end gap-3 pt-4 border-t border-borde">
             <button
               type="button"
               onClick={closeCommandModal}
-              className="px-4 py-2 rounded-lg border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-900/5 dark:hover:bg-white/5 transition-colors"
+              className="btn-secundario"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isLoading || !name.trim() || !command.trim()}
-              className="px-4 py-2 rounded-lg bg-purple-500 text-zinc-900 dark:text-white hover:bg-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn-primario disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? 'Guardando...' : isEdit ? 'Actualizar comando' : 'Guardar comando'}
             </button>

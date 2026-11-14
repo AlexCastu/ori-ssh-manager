@@ -85,34 +85,35 @@ function GroupModalForm({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={closeGroupModal}
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
       />
 
       {/* Modal */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative w-full max-w-3xl bg-white/95 dark:bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-zinc-200 dark:border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto"
+        initial={{ opacity: 0, scale: 0.97 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.97 }}
+        transition={{ duration: 0.18 }}
+        className="relative w-full max-w-3xl modal-cristal text-texto max-h-[90vh] overflow-y-auto"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-white/5">
+        <div className="flex items-center justify-between p-4 border-b border-borde">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
-              <Folder className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-acento to-acento-2 flex items-center justify-center">
+              <Folder className="w-5 h-5 text-texto" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">
+              <h2 className="text-lg font-semibold text-texto">
                 {isEdit ? 'Editar carpeta' : 'Nueva carpeta'}
               </h2>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              <p className="text-sm text-texto-suave">
                 {isEdit ? 'Actualiza los datos de la carpeta' : 'Crea una carpeta para organizar sesiones'}
               </p>
             </div>
           </div>
           <button
             onClick={closeGroupModal}
-            className="p-2 rounded-lg hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
+            className="btn-icono"
           >
             <X className="w-5 h-5" />
           </button>
@@ -125,14 +126,14 @@ function GroupModalForm({
           <div className="space-y-4">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Nombre de la carpeta
             </label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+              className="campo"
               placeholder="Producción"
               autoFocus
               required
@@ -141,7 +142,7 @@ function GroupModalForm({
 
           {/* Color */}
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Color
             </label>
             <div className="flex gap-2">
@@ -150,20 +151,22 @@ function GroupModalForm({
                   key={color.value}
                   type="button"
                   onClick={() => setFormData({ ...formData, color: color.value })}
-                  className={`w-8 h-8 rounded-lg ${color.class} transition-transform ${
+                  className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-colors ${
                     formData.color === color.value
-                      ? 'ring-2 ring-zinc-900 dark:ring-white ring-offset-2 ring-offset-white dark:ring-offset-zinc-900 scale-110'
-                      : 'hover:scale-105'
+                      ? 'border-acento bg-superficie-fuerte'
+                      : 'border-borde hover:bg-superficie-hover'
                   }`}
                   title={color.label}
-                />
+                >
+                  <span className={`w-5 h-5 rounded-md ${color.class}`} />
+                </button>
               ))}
             </div>
           </div>
 
           {/* Icon */}
           <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Icono
             </label>
             <div className="flex flex-wrap gap-1.5">
@@ -172,10 +175,10 @@ function GroupModalForm({
                   key={name}
                   type="button"
                   onClick={() => setFormData({ ...formData, icon: name })}
-                  className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-colors ${
+                  className={`w-8 h-8 flex items-center justify-center rounded-xl border transition-colors ${
                     formData.icon === name
-                      ? 'bg-blue-500/20 border-blue-500/50 text-blue-600 dark:text-blue-400'
-                      : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-white/20'
+                      ? 'bg-superficie-fuerte border-acento text-texto'
+                      : 'border-borde text-texto-suave hover:border-borde-fuerte hover:bg-superficie-hover'
                   }`}
                   title={name}
                 >
@@ -190,13 +193,13 @@ function GroupModalForm({
           <div className="space-y-4">
           {/* Notes */}
           <div className="flex flex-col h-full">
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+            <label className="block text-[11px] uppercase tracking-wider text-texto-tenue mb-1.5">
               Notas (opcional)
             </label>
             <textarea
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              className="w-full flex-1 min-h-[120px] px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 resize-none"
+              className="campo flex-1 min-h-[120px] resize-none"
               placeholder="Comentarios, contactos, recordatorios..."
             />
           </div>
@@ -204,17 +207,17 @@ function GroupModalForm({
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-3 pt-4 border-t border-zinc-200 dark:border-white/5">
+          <div className="flex justify-end gap-3 pt-4 border-t border-borde">
             <button
               type="button"
               onClick={closeGroupModal}
-              className="px-4 py-2 rounded-lg border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-900/5 dark:hover:bg-white/5 transition-colors"
+              className="btn-secundario"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="px-4 py-2 rounded-lg bg-blue-500 text-zinc-900 dark:text-white hover:bg-blue-600 transition-colors"
+              className="btn-primario"
             >
               {isEdit ? 'Guardar cambios' : 'Crear carpeta'}
             </button>
