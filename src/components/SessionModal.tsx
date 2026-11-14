@@ -185,7 +185,7 @@ export function SessionModal() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={closeSessionModal}
+        onClick={() => !isLoading && closeSessionModal()}
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
       />
 
@@ -213,6 +213,7 @@ export function SessionModal() {
           </div>
           <button
             onClick={closeSessionModal}
+            disabled={isLoading}
             className="p-2 rounded-lg hover:bg-zinc-900/5 dark:hover:bg-white/5 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
           >
             <X className="w-5 h-5" />
@@ -628,13 +629,25 @@ export function SessionModal() {
                     </select>
                   </div>
                   {hop.authMethod === 'password' && (
-                    <input
-                      type="password"
-                      value={hop.password}
-                      onChange={(e) => updateHop(index, { password: e.target.value })}
-                      className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
-                      placeholder={isEdit ? 'Vacío = mantener actual' : 'Password'}
-                    />
+                    <div>
+                      <input
+                        type="password"
+                        value={hop.password}
+                        onChange={(e) => updateHop(index, { password: e.target.value })}
+                        className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-sm"
+                        placeholder={isEdit ? 'Vacío = mantener actual' : 'Password'}
+                      />
+                      {isEdit && !hop.password && !existingSession?.jumpHops?.some(
+                        (stored) => !stored.refSessionId
+                          && stored.host === hop.host
+                          && stored.port === hop.port
+                          && stored.username === hop.username
+                      ) && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          Este salto es nuevo o ha cambiado. Escribe la contraseña.
+                        </p>
+                      )}
+                    </div>
                   )}
                   {hop.authMethod === 'key' && (
                     <div className="grid grid-cols-2 gap-3">
@@ -682,6 +695,7 @@ export function SessionModal() {
             <button
               type="button"
               onClick={closeSessionModal}
+              disabled={isLoading}
               className="px-4 py-2 rounded-lg border border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-900/5 dark:hover:bg-white/5 transition-colors"
             >
               Cancelar

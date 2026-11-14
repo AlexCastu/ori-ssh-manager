@@ -221,6 +221,11 @@ class SSHService {
     this.inputBuffers.set(channelId, buffer.slice(-256));
   }
 
+  /// False once the tab was closed (e.g. while its connection was still pending)
+  private isTabOpen(tabId: string): boolean {
+    return useStore.getState().tabs.some((t) => t.id === tabId);
+  }
+
   /// Resolve the session id behind a live channel (via the open tabs).
   private sessionIdForChannel(channelId: string): string | undefined {
     return useStore.getState().tabs.find((t) => t.channelId === channelId)?.sessionId;
@@ -230,7 +235,7 @@ class SSHService {
   /// looks like a password/passphrase prompt (then the line is a secret).
   private maybeLogCommand(channelId: string, command: string) {
     if (!command) return;
-    const logCommands = useStore.getState().settings.logCommands ?? true;
+    const logCommands = useStore.getState().settings.logCommands ?? false;
     if (!logCommands) return;
 
     const sessionId = this.sessionIdForChannel(channelId);
@@ -299,7 +304,7 @@ class SSHService {
           title: 'Reconnected',
           message: `Successfully reconnected to ${config.session.name}`,
         });
-      } else {
+      } else if (this.isTabOpen(tabId)) {
         // Try again
         this.scheduleReconnect(tabId, attempt + 1);
       }
@@ -327,6 +332,12 @@ class SSHService {
 
     try {
       const channelId = await invoke<string>('ssh_connect', { params });
+      if (!this.isTabOpen(tabId)) {
+        await invoke('ssh_disconnect', { channelId }).catch((error) =>
+          console.error('Failed to disconnect abandoned channel:', error)
+        );
+        return null;
+      }
       updateTabStatus(tabId, 'connected', channelId);
       logSessionEvent(
         session.id,
@@ -343,6 +354,8 @@ class SSHService {
       return channelId;
     } catch (error) {
       console.error('SSH connection failed:', error);
+      // Tab closed while connecting: nobody is waiting for this error
+      if (!this.isTabOpen(tabId)) return null;
       updateTabStatus(tabId, 'error');
 
       const errorText = String(error);

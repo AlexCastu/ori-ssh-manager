@@ -17,7 +17,7 @@ export function NoteBadge({ notes }: { notes: string }) {
           e.stopPropagation();
           setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect());
         }}
-        className="p-0.5 rounded text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-help"
+        className="p-0.5 rounded text-texto-tenue hover:text-texto transition-colors cursor-help"
         title={notes}
       >
         <Info className="w-3.5 h-3.5" />
@@ -25,7 +25,7 @@ export function NoteBadge({ notes }: { notes: string }) {
 
       {menuAnchor && (
         <AnchoredMenu anchor={menuAnchor} align="left" className="p-2" onClose={() => setMenuAnchor(null)}>
-          <p className="max-w-[220px] whitespace-pre-wrap break-words text-xs text-zinc-700 dark:text-zinc-300">
+          <p className="max-w-[220px] whitespace-pre-wrap break-words text-xs text-texto-suave">
             {notes}
           </p>
         </AnchoredMenu>

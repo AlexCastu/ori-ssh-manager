@@ -45,11 +45,11 @@ export function TabBar() {
 
   const statusDot = (status: string) => {
     const colors = {
-      idle: 'bg-zinc-500',
-      connecting: 'bg-yellow-500 animate-pulse',
-      connected: 'bg-green-500',
-      disconnected: 'bg-zinc-500',
-      error: 'bg-red-500',
+      idle: 'bg-texto-tenue',
+      connecting: 'bg-aviso animate-pulse',
+      connected: 'bg-exito',
+      disconnected: 'bg-texto-tenue',
+      error: 'bg-peligro',
     };
     return colors[status as keyof typeof colors] || colors.idle;
   };
@@ -59,7 +59,7 @@ export function TabBar() {
   }
 
   return (
-    <div className="flex items-center bg-white/70 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-white/5">
+    <div className="flex items-center bg-transparent border-b border-borde">
       <div
         ref={stripRef}
         className="flex-1 min-w-0 flex items-center gap-1 px-2 py-1 overflow-x-auto scrollbar-hide"
@@ -77,7 +77,7 @@ export function TabBar() {
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
-                title={session ? `${session.name} — ${session.username}@${session.host}:${session.port}` : 'Unknown'}
+                title={session ? `${session.name} — ${session.username}@${session.host}:${session.port}` : 'Desconocida'}
                 onClick={() => setActiveTab(tab.id)}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -88,18 +88,18 @@ export function TabBar() {
                   });
                 }}
                 className={`
-                  group flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm
+                  group flex items-center gap-2 px-3 py-1.5 rounded-full text-sm
                   transition-colors min-w-[120px] max-w-[200px] shrink-0
                   ${isActive
-                    ? 'bg-zinc-900/10 dark:bg-white/10 text-zinc-900 dark:text-white'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-900/5 dark:hover:bg-white/5'
+                    ? 'bg-superficie-fuerte text-texto'
+                    : 'text-texto-suave hover:text-texto hover:bg-superficie-hover'
                   }
                 `}
               >
                 <div className={`w-2 h-2 rounded-full shrink-0 ${statusDot(tab.status)}`} />
                 <Terminal className="w-3.5 h-3.5 flex-shrink-0" />
                 <span className="truncate flex-1 text-left">
-                  {session?.name || 'Unknown'}
+                  {session?.name || 'Desconocida'}
                 </span>
                 <span
                   role="button"
@@ -108,7 +108,7 @@ export function TabBar() {
                     e.stopPropagation();
                     closeTab(tab.id);
                   }}
-                  className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-zinc-900/10 dark:hover:bg-white/10 transition-all"
+                  className="p-0.5 rounded-full opacity-0 group-hover:opacity-100 hover:bg-superficie-hover transition-all"
                 >
                   <X className="w-3 h-3" />
                 </span>
@@ -124,7 +124,7 @@ export function TabBar() {
           onClick={(e) =>
             setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect())
           }
-          className="shrink-0 mx-1 px-1.5 py-1 rounded-lg flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-900/5 dark:hover:bg-white/5 transition-colors"
+          className="btn-icono shrink-0 mx-1 flex items-center gap-1 text-xs"
           title="Todas las pestañas"
         >
           <span className="tabular-nums">{tabs.length}</span>
@@ -136,7 +136,7 @@ export function TabBar() {
         <AnchoredMenu
           anchor={menuAnchor}
           onClose={() => setMenuAnchor(null)}
-          className="py-1 min-w-[230px] max-h-[60vh] overflow-y-auto"
+          className="p-1 min-w-[230px] max-h-[60vh] overflow-y-auto"
         >
           {tabs.map((tab) => {
             const session = getSessionForTab(tab.sessionId);
@@ -144,19 +144,19 @@ export function TabBar() {
             return (
               <button
                 key={tab.id}
-                title={session ? `${session.name} — ${session.username}@${session.host}:${session.port}` : 'Unknown'}
+                title={session ? `${session.name} — ${session.username}@${session.host}:${session.port}` : 'Desconocida'}
                 onClick={() => {
                   setActiveTab(tab.id);
                   setMenuAnchor(null);
                 }}
-                className={`w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 ${
+                className={`fila w-full text-left text-sm flex items-center gap-2 ${
                   isActive
-                    ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-white'
-                    : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                    ? 'bg-superficie-fuerte hover:bg-superficie-fuerte text-texto'
+                    : 'text-texto-suave'
                 }`}
               >
                 <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot(tab.status)}`} />
-                <span className="truncate flex-1">{session?.name || 'Unknown'}</span>
+                <span className="truncate flex-1">{session?.name || 'Desconocida'}</span>
                 <span
                   role="button"
                   tabIndex={-1}
@@ -164,7 +164,7 @@ export function TabBar() {
                     e.stopPropagation();
                     closeTab(tab.id);
                   }}
-                  className="p-0.5 rounded text-zinc-500 hover:text-red-500 hover:bg-zinc-300/60 dark:hover:bg-zinc-600"
+                  className="p-0.5 rounded-lg text-texto-tenue hover:text-peligro hover:bg-superficie-hover"
                   title="Cerrar"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -179,9 +179,9 @@ export function TabBar() {
         const ctxTab = tabs.find((t) => t.id === ctxMenu.tabId);
         if (!ctxTab) return null;
         const itemBase =
-          'w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 disabled:opacity-40';
-        const itemClass = `${itemBase} text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700`;
-        const itemDanger = `${itemBase} text-red-600 dark:text-red-400 hover:bg-red-500/10`;
+          'fila w-full text-left text-sm flex items-center gap-2 disabled:opacity-40';
+        const itemClass = `${itemBase} text-texto-suave`;
+        const itemDanger = `${itemBase} text-peligro`;
         const isConnected = ctxTab.status === 'connected' && ctxTab.channelId;
         const ctxSession = getSessionForTab(ctxTab.sessionId);
         return (
@@ -189,7 +189,7 @@ export function TabBar() {
             anchor={ctxMenu.anchor}
             align="left"
             onClose={() => setCtxMenu(null)}
-            className="py-1 min-w-[180px]"
+            className="p-1 min-w-[180px]"
           >
             {ctxSession && (
               <button

@@ -26,7 +26,7 @@ import { AnchoredMenu } from './AnchoredMenu';
 import { NoteBadge } from './NoteBadge';
 import { ConfirmDialog } from './ConfirmDialog';
 import type { Session, SessionGroup, SessionColor } from '../types';
-import { parseSessionsFile } from '../utils/sessionImport';
+import { parseSessionsFile, resolveImportGroupPath } from '../utils/sessionImport';
 import { ICON_NAMES, DEFAULT_SESSION_ICON } from '../utils/icons';
 import { DynamicIcon, GroupIconView } from '../utils/IconView';
 import { colorConfig, COLOR_NAMES as allColors, getColor } from '../utils/colors';
@@ -34,80 +34,9 @@ import { colorConfig, COLOR_NAMES as allColors, getColor } from '../utils/colors
 const SESSION_DRAG_MIME = 'application/x-ori-session-id';
 
 type DeleteTarget =
-  | { type: 'session'; session: Session }
+  | { type: 'session'; session: Session; jumpRefCount: number }
   | { type: 'group'; group: SessionGroup }
   | null;
-
-function DeleteConfirmationDialog({
-  target,
-  isDeleting,
-  onCancel,
-  onConfirm,
-}: {
-  target: DeleteTarget;
-  isDeleting: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  if (!target) return null;
-
-  const isGroup = target.type === 'group';
-  const name = isGroup ? target.group.name : target.session.name;
-  const description = isGroup
-    ? `¿Eliminar "${name}"? Las sesiones de esta carpeta pasarán a Sin carpeta.`
-    : `¿Eliminar "${name}"? Se borra la sesión SSH guardada.`;
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/50"
-        onClick={onCancel}
-        aria-label="Cancelar"
-        disabled={isDeleting}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="delete-confirm-title"
-        className="relative w-full max-w-sm rounded-lg border border-zinc-300 bg-white p-4 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
-      >
-        <div className="mb-4 flex items-start gap-3">
-          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-red-500/10 text-red-600 dark:text-red-400">
-            <Trash2 className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <h2 id="delete-confirm-title" className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              {isGroup ? 'Eliminar carpeta' : 'Eliminar sesión'}
-            </h2>
-            <p className="mt-1 text-sm leading-5 text-zinc-600 dark:text-zinc-400">
-              {description}
-            </p>
-          </div>
-        </div>
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isDeleting}
-            className="rounded-md px-3 py-1.5 text-sm text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={isDeleting}
-            className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            <Trash2 className="h-4 w-4" />
-            {isDeleting ? 'Eliminando...' : 'Eliminar'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // Session Item Component
 function SessionItem({
@@ -137,7 +66,7 @@ function SessionItem({
   const colors = getColor(session.color);
   const tooltip = `${session.username}@${session.host}${
     session.jumpHops?.length
-      ? ` (via ${session.jumpHops.map((hop) => hop.host).join(' → ')})`
+      ? ` (vía ${session.jumpHops.map((hop) => hop.host).join(' → ')})`
       : ''
   }${session.notes ? `\n\n${session.notes}` : ''}`;
 
@@ -152,8 +81,8 @@ function SessionItem({
         onClick={onSelect}
         onDoubleClick={onConnect}
         title={`${session.name} — ${tooltip}`}
-        className={`my-0.5 p-1 rounded-md cursor-pointer flex items-center justify-center transition-all duration-100 ${
-          isActive ? 'bg-zinc-100 dark:bg-zinc-800' : 'hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80 hover:scale-105 active:scale-95'
+        className={`fila px-1 my-0.5 cursor-pointer flex items-center justify-center transition-all duration-100 ${
+          isActive ? 'bg-superficie-fuerte hover:bg-superficie-fuerte' : 'hover:scale-105 active:scale-95'
         }`}
       >
         <div className={`w-5 h-5 rounded-md flex items-center justify-center border ${colors.bg} ${colors.border}`}>
@@ -171,8 +100,8 @@ function SessionItem({
       onClick={onSelect}
       onDoubleClick={onConnect}
       title={tooltip}
-      className={`group relative flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer transition-colors duration-100 ${
-        isActive ? 'bg-zinc-100 dark:bg-zinc-800' : 'hover:bg-zinc-200/70 dark:hover:bg-zinc-800/70'
+      className={`fila group relative flex items-center gap-2 cursor-pointer transition-colors duration-100 ${
+        isActive ? 'bg-superficie-fuerte hover:bg-superficie-fuerte' : ''
       }`}
     >
       {/* The small colored dot the user likes, unless a custom icon is set */}
@@ -181,7 +110,7 @@ function SessionItem({
       ) : (
         <span className={`w-2 h-2 rounded-full shrink-0 ${colors.dot}`} />
       )}
-      <span className="flex-1 min-w-0 truncate text-[13px] text-zinc-800 dark:text-zinc-200">{session.name}</span>
+      <span className="flex-1 min-w-0 truncate text-[13px] text-texto">{session.name}</span>
 
       {session.notes ? <NoteBadge notes={session.notes} /> : null}
 
@@ -198,7 +127,7 @@ function SessionItem({
             e.stopPropagation();
             onConnect();
           }}
-          className="p-1 rounded hover:bg-blue-500/20 text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+          className="btn-icono hover:text-acento cursor-pointer"
           title="Conectar"
         >
           <Play className="w-3 h-3" />
@@ -210,7 +139,7 @@ function SessionItem({
             e.stopPropagation();
             setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect());
           }}
-          className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors cursor-pointer"
+          className="btn-icono cursor-pointer"
           title="Más acciones"
         >
           <MoreVertical className="w-3 h-3" />
@@ -226,7 +155,7 @@ function SessionItem({
               onInfo();
               setMenuAnchor(null);
             }}
-            className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
+            className="fila w-full text-left text-sm text-texto-suave flex items-center gap-2"
           >
             <Network className="w-3.5 h-3.5" />
             Información
@@ -238,7 +167,7 @@ function SessionItem({
               onEdit();
               setMenuAnchor(null);
             }}
-            className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
+            className="fila w-full text-left text-sm text-texto-suave flex items-center gap-2"
           >
             <Edit2 className="w-3.5 h-3.5" />
             Editar
@@ -250,7 +179,7 @@ function SessionItem({
               onDelete();
               setMenuAnchor(null);
             }}
-            className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 flex items-center gap-2"
+            className="fila w-full text-left text-sm text-peligro flex items-center gap-2"
           >
             <Trash2 className="w-3.5 h-3.5" />
             Eliminar
@@ -278,7 +207,7 @@ function ColorPicker({
           e.stopPropagation();
           setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect());
         }}
-        className={`w-4 h-4 rounded-full ${colorConfig[selectedColor].dot} hover:ring-2 hover:ring-zinc-900/30 dark:hover:ring-white/30 transition-all`}
+        className={`w-4 h-4 rounded-full ${colorConfig[selectedColor].dot} hover:ring-2 hover:ring-borde-fuerte transition-all`}
         title="Cambiar color"
       />
 
@@ -299,7 +228,7 @@ function ColorPicker({
                   setMenuAnchor(null);
                 }}
                 className={`w-5 h-5 rounded-full ${colorConfig[color].dot} hover:scale-110 transition-transform ${
-                  selectedColor === color ? 'ring-2 ring-zinc-900 dark:ring-white ring-offset-1 ring-offset-white dark:ring-offset-zinc-800' : ''
+                  selectedColor === color ? 'ring-2 ring-texto ring-offset-1 ring-offset-modal' : ''
                 }`}
                 title={color}
               />
@@ -332,7 +261,7 @@ function IconPicker({
           e.stopPropagation();
           setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect());
         }}
-        className={`p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors ${colors.text}`}
+        className={`btn-icono p-0.5 ${colors.text}`}
         title="Cambiar icono"
       >
         <GroupIconView name={selectedIcon} isExpanded className="w-4 h-4" />
@@ -350,12 +279,12 @@ function IconPicker({
                   onSelect(name);
                   setMenuAnchor(null);
                 }}
-                className={`w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors ${
-                  selectedIcon === name ? 'bg-zinc-200 dark:bg-zinc-700 ring-1 ring-blue-500' : ''
+                className={`btn-icono w-7 h-7 flex items-center justify-center ${
+                  selectedIcon === name ? 'bg-superficie-fuerte hover:bg-superficie-fuerte ring-1 ring-acento' : ''
                 }`}
                 title={name}
               >
-                <DynamicIcon name={name} className="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
+                <DynamicIcon name={name} className="w-4 h-4 text-texto-suave" />
               </button>
             ))}
           </div>
@@ -399,7 +328,7 @@ interface TreeHandlers {
 }
 
 // Group Component with Drop Zone (renders its child folders recursively)
-function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number; h: TreeHandlers }) {
+function GroupSection({ group, h }: { group: SessionGroup; h: TreeHandlers }) {
   const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   const colors = getColor(group.color);
   const groupSessions = h.sessions.filter((s) => s.groupId === group.id);
@@ -425,10 +354,10 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
           onDragOver={(e) => h.onDragOver(e, group.id)}
           onDragLeave={h.onDragLeave}
           onDrop={(e) => h.onDrop(e, group.id)}
-          className={`p-1 my-0.5 rounded-md cursor-pointer flex items-center justify-center transition-all duration-100 ${
+          className={`fila px-1 my-0.5 cursor-pointer flex items-center justify-center border border-dashed transition-all duration-100 ${
             isDragOver
-              ? 'bg-blue-500/20 ring-2 ring-blue-500'
-              : 'hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80 hover:scale-105 active:scale-95'
+              ? 'bg-[rgba(255,79,163,0.08)] border-acento'
+              : 'border-transparent hover:scale-105 active:scale-95'
           }`}
           title={`${group.name} (${groupSessions.length})${group.notes ? `\n\n${group.notes}` : ''}`}
         >
@@ -437,7 +366,7 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
           </div>
         </div>
         {group.isExpanded && childGroups.map((child) => (
-          <GroupSection key={child.id} group={child} depth={depth + 1} h={h} />
+          <GroupSection key={child.id} group={child} h={h} />
         ))}
         {group.isExpanded && groupSessions.map((session) => (
           <SessionItem
@@ -461,13 +390,13 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
   // Inline rename takes over the header row (works at any depth)
   if (h.editingGroupId === group.id) {
     return (
-      <div className="flex items-center gap-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-2 mb-1 border border-zinc-300 dark:border-zinc-700">
+      <div className="fila flex items-center gap-2 bg-superficie-fuerte mb-1 border border-borde">
         <div className={`w-3 h-3 rounded-full ${colors.dot}`} />
         <input
           type="text"
           value={h.editGroupName}
           onChange={(e) => h.setEditGroupName(e.target.value)}
-          className="flex-1 bg-transparent text-sm text-zinc-900 dark:text-white outline-none"
+          className="campo flex-1 min-w-0"
           autoFocus
           onKeyDown={(e) => {
             if (e.key === 'Enter') h.onSubmitRename(group.id);
@@ -481,7 +410,7 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
 
   return (
     <div
-      className={`mb-1 rounded-lg transition-all ${isDragOver ? 'bg-blue-500/10 ring-2 ring-blue-500/50' : ''}`}
+      className={`mb-1 rounded-xl border border-dashed transition-all ${isDragOver ? 'bg-[rgba(255,79,163,0.08)] border-acento' : 'border-transparent'}`}
       onDragOver={(e) => h.onDragOver(e, group.id)}
       onDragLeave={h.onDragLeave}
       onDrop={(e) => h.onDrop(e, group.id)}
@@ -489,10 +418,10 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
       {/* Group Header */}
       <div
         onClick={() => h.onToggleExpand(group.id)}
-        className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-zinc-200/60 dark:hover:bg-zinc-800/50 group"
+        className="fila flex items-center gap-2 cursor-pointer group"
       >
         <ChevronDown
-          className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${group.isExpanded ? '' : '-rotate-90'}`}
+          className={`w-4 h-4 text-texto-tenue transition-transform duration-200 ${group.isExpanded ? '' : '-rotate-90'}`}
         />
 
         <ColorPicker selectedColor={group.color} onSelect={(color) => h.onChangeGroupColor(group.id, color)} />
@@ -503,9 +432,9 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
           onSelect={(icon) => h.onChangeGroupIcon(group.id, icon)}
         />
 
-        <span className="flex-1 text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">{group.name}</span>
+        <span className="flex-1 text-sm font-medium text-texto truncate">{group.name}</span>
         {group.notes ? <NoteBadge notes={group.notes} /> : null}
-        <span className="text-xs text-zinc-400 dark:text-zinc-600 tabular-nums">{groupSessions.length}</span>
+        <span className="text-xs text-texto-tenue tabular-nums">{groupSessions.length}</span>
 
         {/* Group Menu */}
         <div className="relative">
@@ -515,7 +444,7 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
               e.stopPropagation();
               setMenuAnchor(menuAnchor ? null : e.currentTarget.getBoundingClientRect());
             }}
-            className="p-1 rounded opacity-70 group-hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-all cursor-pointer"
+            className="btn-icono opacity-70 group-hover:opacity-100 cursor-pointer"
             title="Acciones de carpeta"
           >
             <MoreVertical className="w-3.5 h-3.5" />
@@ -530,7 +459,7 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
                   h.onEditGroupFull(group);
                   setMenuAnchor(null);
                 }}
-                className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
+                className="fila w-full text-left text-sm text-texto-suave flex items-center gap-2"
               >
                 <Settings className="w-3.5 h-3.5" />
                 Editar carpeta…
@@ -542,7 +471,7 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
                   h.onStartRename(group);
                   setMenuAnchor(null);
                 }}
-                className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
+                className="fila w-full text-left text-sm text-texto-suave flex items-center gap-2"
               >
                 <Edit2 className="w-3.5 h-3.5" />
                 Renombrar
@@ -554,7 +483,7 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
                   h.onAddSubgroup(group.id);
                   setMenuAnchor(null);
                 }}
-                className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
+                className="fila w-full text-left text-sm text-texto-suave flex items-center gap-2"
               >
                 <FolderPlus className="w-3.5 h-3.5" />
                 Añadir subcarpeta
@@ -567,7 +496,7 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
                   setMenuAnchor(null);
                 }}
                 disabled={!canMoveUp}
-                className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                className="fila w-full text-left text-sm text-texto-suave flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               >
                 <ChevronUp className="w-3.5 h-3.5" />
                 Subir
@@ -580,7 +509,7 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
                   setMenuAnchor(null);
                 }}
                 disabled={!canMoveDown}
-                className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                className="fila w-full text-left text-sm text-texto-suave flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               >
                 <ChevronDown className="w-3.5 h-3.5" />
                 Bajar
@@ -592,7 +521,7 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
                   h.onDeleteGroup(group.id);
                   setMenuAnchor(null);
                 }}
-                className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 flex items-center gap-2"
+                className="fila w-full text-left text-sm text-peligro flex items-center gap-2"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 Eliminar
@@ -612,9 +541,9 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <div className={`ml-3 mt-0.5 space-y-px border-l pl-2 ${colors.border}`}>
+            <div className="ml-3 mt-0.5 space-y-px border-l border-borde pl-2">
               {childGroups.map((child) => (
-                <GroupSection key={child.id} group={child} depth={depth + 1} h={h} />
+                <GroupSection key={child.id} group={child} h={h} />
               ))}
               {groupSessions.map((session) => (
                 <SessionItem
@@ -632,8 +561,8 @@ function GroupSection({ group, depth, h }: { group: SessionGroup; depth: number;
                 />
               ))}
               {childGroups.length === 0 && groupSessions.length === 0 && (
-                <div className={`text-xs py-3 px-2 text-center rounded-lg border-2 border-dashed ${
-                  isDragOver ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'border-zinc-300 dark:border-zinc-700/50 text-zinc-400 dark:text-zinc-600'
+                <div className={`text-xs py-3 px-2 text-center rounded-xl border-2 border-dashed ${
+                  isDragOver ? 'border-acento bg-[rgba(255,79,163,0.08)] text-acento' : 'border-borde text-texto-tenue'
                 }`}>
                   {isDragOver ? '↓ Suelta la sesión aquí' : 'Arrastra sesiones aquí'}
                 </div>
@@ -840,8 +769,14 @@ export function Sidebar() {
     openInfoModal({ session });
   }, [openInfoModal]);
 
-  const handleDelete = useCallback((session: Session) => {
-    setDeleteTarget({ type: 'session', session });
+  const handleDelete = useCallback(async (session: Session) => {
+    let jumpRefCount = 0;
+    try {
+      jumpRefCount = await invoke<number>('count_session_jump_refs', { id: session.id });
+    } catch (error) {
+      console.error('Failed to count session jump references:', error);
+    }
+    setDeleteTarget({ type: 'session', session, jumpRefCount });
   }, []);
 
   // Folder creation goes through the modal so a note/color/icon can be set
@@ -906,14 +841,14 @@ export function Sidebar() {
       if (result.sessions.length === 0) {
         addToast({
           type: 'error',
-          title: 'Import failed',
-          message: result.errors[0] ?? 'No valid sessions found',
+          title: 'Error al importar',
+          message: result.errors[0] ?? 'No se encontraron sesiones válidas',
         });
         return;
       }
 
       const groupByName = new Map(
-        groups.map((group) => [group.name.trim().toLowerCase(), group.id])
+        groups.map((group) => [`name:${group.name.trim().toLowerCase()}`, group.id])
       );
       let importedCount = 0;
       let failedCount = 0;
@@ -922,19 +857,33 @@ export function Sidebar() {
         const normalizedName = groupName?.trim();
         if (!normalizedName) return undefined;
 
-        const groupKey = normalizedName.toLowerCase();
-        const existingGroupId = groupByName.get(groupKey);
-        if (existingGroupId) return existingGroupId;
-
-        const createdGroupId = addGroup({
-          name: normalizedName,
-          color: 'blue',
-          icon: 'folder',
-          isExpanded: true,
-          parentId: null,
-        });
-        groupByName.set(groupKey, createdGroupId);
-        return createdGroupId;
+        const isPath = normalizedName.includes('/');
+        let parentId: string | null = null;
+        let path = '';
+        for (const group of resolveImportGroupPath(normalizedName, groups)) {
+          const nameKey = group.name.toLowerCase();
+          path = path ? `${path}/${nameKey}` : nameKey;
+          const groupKey = `${isPath ? 'path' : 'name'}:${path}`;
+          const existingGroupId = groupByName.get(groupKey) ?? group.id;
+          if (existingGroupId) {
+            parentId = existingGroupId;
+          } else {
+            const createdGroupId = addGroup({
+              name: group.name,
+              color: 'blue',
+              icon: 'folder',
+              isExpanded: true,
+              parentId,
+            });
+            groupByName.set(`name:${nameKey}`, createdGroupId);
+            if (parentId === null) {
+              groupByName.set(`path:${path}`, createdGroupId);
+            }
+            parentId = createdGroupId;
+          }
+          groupByName.set(groupKey, parentId);
+        }
+        return parentId ?? undefined;
       };
 
       for (const importedSession of result.sessions) {
@@ -952,18 +901,18 @@ export function Sidebar() {
       const warningCount = result.errors.length + failedCount;
       addToast({
         type: warningCount > 0 ? 'warning' : 'success',
-        title: 'Import completed',
+        title: 'Importación completada',
         message: warningCount > 0
-          ? `${importedCount} sessions imported, ${warningCount} skipped`
-          : `${importedCount} sessions imported`,
+          ? `${importedCount} sesiones importadas, ${warningCount} omitidas`
+          : `${importedCount} sesiones importadas`,
         duration: 5000,
       });
     } catch (error) {
       console.error('Session import failed:', error);
       addToast({
         type: 'error',
-        title: 'Import failed',
-        message: 'Could not read the selected file',
+        title: 'Error al importar',
+        message: 'No se pudo leer el archivo seleccionado',
       });
     } finally {
       setIsImportingSessions(false);
@@ -1011,6 +960,20 @@ export function Sidebar() {
     }
   }, [addToast]);
 
+  let deleteDescription = '';
+  if (deleteTarget) {
+    const isGroup = deleteTarget.type === 'group';
+    const name = isGroup ? deleteTarget.group.name : deleteTarget.session.name;
+    deleteDescription = isGroup
+      ? `¿Eliminar "${name}"? Las sesiones de esta carpeta pasarán a Sin carpeta.`
+      : `¿Eliminar "${name}"? Se borra la sesión SSH guardada.`;
+
+    if (deleteTarget.type === 'session' && deleteTarget.jumpRefCount > 0) {
+      deleteDescription += ` ${deleteTarget.jumpRefCount} sesión(es) la usan como máquina de salto`
+        + ' y dejarán de conectar hasta que cambies su salto.';
+    }
+  }
+
   const treeHandlers: TreeHandlers = {
     groups,
     sessions: filteredSessions,
@@ -1053,7 +1016,7 @@ export function Sidebar() {
       animate={{ width: sidebarCollapsed ? 64 : sidebarWidth }}
       // No animation while dragging, so the edge tracks the pointer 1:1
       transition={isResizing ? { duration: 0 } : { duration: 0.2, ease: 'easeInOut' }}
-      className="relative h-full shrink-0 bg-white/70 dark:bg-zinc-900/50 backdrop-blur-xl border-r border-zinc-200 dark:border-zinc-800/50 flex flex-col"
+      className="relative h-full shrink-0 bg-panel backdrop-blur-2xl border-r border-borde flex flex-col"
       onDragEnd={handleDragEnd}
     >
       {/* Resize handle on the right edge (only when expanded) */}
@@ -1065,26 +1028,26 @@ export function Sidebar() {
           }}
           onDoubleClick={() => setSidebarWidth(280)}
           className={`absolute top-0 right-0 z-20 h-full w-1.5 cursor-col-resize transition-colors ${
-            isResizing ? 'bg-blue-500/60' : 'hover:bg-blue-500/40'
+            isResizing ? 'bg-acento' : 'hover:bg-acento'
           }`}
           title="Arrastra para redimensionar (doble clic para restablecer)"
         />
       )}
       {/* Header */}
       <div
-        className={`p-3 flex border-b border-zinc-200 dark:border-zinc-800/50 ${
+        className={`p-3 flex border-b border-borde ${
           sidebarCollapsed ? 'flex-col items-center gap-2' : 'items-center justify-between'
         }`}
       >
         <div className="flex items-center gap-2">
           <img src="/logo.png" alt="Logo" className="w-6 h-6 rounded" />
-          {!sidebarCollapsed && <span className="font-medium text-zinc-800 dark:text-zinc-200">Sesiones</span>}
+          {!sidebarCollapsed && <span className="font-semibold text-texto">Sesiones</span>}
         </div>
 
         <button
           onClick={toggleSidebar}
-          className="p-1.5 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
-          title={sidebarCollapsed ? 'Expand' : 'Collapse'}
+          className="btn-icono"
+          title={sidebarCollapsed ? 'Expandir' : 'Contraer'}
         >
           <ChevronLeft className={`w-4 h-4 transition-transform duration-200 ${sidebarCollapsed ? 'rotate-180' : ''}`} />
         </button>
@@ -1096,18 +1059,18 @@ export function Sidebar() {
         {!sidebarCollapsed && (
           <div className="mb-3 px-1">
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+              <Search className="absolute left-2.5 inset-y-0 my-auto w-4 h-4 text-texto-tenue" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Buscar sesiones..."
-                className="w-full pl-8 pr-8 py-1.5 bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-300 dark:border-zinc-700/50 rounded-lg text-sm text-zinc-900 dark:text-white placeholder-zinc-500 outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition-all"
+                className="campo pl-8 pr-10 transition-colors"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+                  className="btn-icono absolute right-1 inset-y-0 my-auto h-fit"
                   title="Limpiar búsqueda"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -1120,7 +1083,7 @@ export function Sidebar() {
         {/* Actions bar */}
         {!sidebarCollapsed && (
           <div className="mb-3 px-1 flex items-center justify-between">
-            <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            <span className="text-[11px] uppercase tracking-wider text-texto-tenue">
               {searchQuery ? `Resultados (${filteredSessions.length})` : 'Todas las sesiones'}
             </span>
             <div className="flex items-center gap-1">
@@ -1134,7 +1097,7 @@ export function Sidebar() {
               <button
                 onClick={() => importInputRef.current?.click()}
                 disabled={isImportingSessions}
-                className="p-1.5 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="btn-icono hover:text-exito disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Importar sesiones"
               >
                 <Upload className="w-4 h-4" />
@@ -1142,21 +1105,21 @@ export function Sidebar() {
               <button
                 onClick={() => setShowExportWarn(true)}
                 disabled={isExporting || sessions.length === 0}
-                className="p-1.5 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="btn-icono hover:text-exito disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Exportar sesiones"
               >
                 <Download className="w-4 h-4" />
               </button>
               <button
                 onClick={() => openGroupModal({ mode: 'create', parentId: null })}
-                className="p-1.5 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
+                className="btn-icono"
                 title="Añadir carpeta"
               >
                 <Folder className="w-4 h-4" />
               </button>
               <button
                 onClick={() => openSessionModal({ mode: 'create' })}
-                className="p-1.5 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                className="btn-icono hover:text-acento"
                 title="Añadir sesión"
               >
                 <Plus className="w-4 h-4" />
@@ -1178,7 +1141,7 @@ export function Sidebar() {
             <button
               onClick={() => importInputRef.current?.click()}
               disabled={isImportingSessions}
-              className="p-2 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn-icono hover:text-exito disabled:opacity-50 disabled:cursor-not-allowed"
               title="Importar sesiones"
             >
               <Upload className="w-5 h-5" />
@@ -1186,14 +1149,14 @@ export function Sidebar() {
             <button
               onClick={() => setShowExportWarn(true)}
               disabled={isExporting || sessions.length === 0}
-              className="p-2 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn-icono hover:text-exito disabled:opacity-50 disabled:cursor-not-allowed"
               title="Exportar sesiones"
             >
               <Download className="w-5 h-5" />
             </button>
             <button
               onClick={() => openSessionModal({ mode: 'create' })}
-              className="p-2 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              className="btn-icono hover:text-acento"
               title="Añadir sesión"
             >
               <Plus className="w-5 h-5" />
@@ -1204,14 +1167,14 @@ export function Sidebar() {
         {/* Groups (nested folders rendered recursively) */}
         <div className="space-y-1">
           {topLevelGroups.map((group) => (
-            <GroupSection key={group.id} group={group} depth={0} h={treeHandlers} />
+            <GroupSection key={group.id} group={group} h={treeHandlers} />
           ))}
 
           {/* Sesiones sin carpeta */}
           {ungroupedSessions.length > 0 && (
             <>
               {groups.length > 0 && !sidebarCollapsed && (
-                <div className="px-2 py-2 text-xs text-zinc-400 dark:text-zinc-600 font-medium">Ungrouped</div>
+                <div className="px-2.5 py-2 text-[11px] uppercase tracking-wider text-texto-tenue">Sin carpeta</div>
               )}
               {ungroupedSessions.map((session) => (
                 <SessionItem
@@ -1234,10 +1197,10 @@ export function Sidebar() {
           {/* Drop zone for removing from group */}
           {!sidebarCollapsed && groups.length > 0 && draggingSessionId && (
             <div
-              className={`mt-3 p-3 rounded-lg border-2 border-dashed transition-all ${
+              className={`mt-3 p-3 rounded-xl border-2 border-dashed transition-all ${
                 dragOverGroupId === 'ungrouped'
-                  ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                  : 'border-zinc-300 dark:border-zinc-700 text-zinc-500'
+                  ? 'border-acento bg-[rgba(255,79,163,0.08)] text-acento'
+                  : 'border-borde text-texto-tenue'
               }`}
               onDragOver={(e) => {
                 e.preventDefault();
@@ -1254,12 +1217,12 @@ export function Sidebar() {
 
           {/* No search results */}
           {filteredSessions.length === 0 && searchQuery && !sidebarCollapsed && (
-            <div className="text-center py-6 text-zinc-500">
+            <div className="text-center py-6 text-texto-tenue">
               <Search className="w-6 h-6 mx-auto mb-2 opacity-40" />
               <p className="text-sm mb-2">Ninguna sesión coincide con "{searchQuery}"</p>
               <button
                 onClick={() => setSearchQuery('')}
-                className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-medium"
+                className="text-acento hover:text-texto text-xs font-medium"
               >
                 Limpiar búsqueda
               </button>
@@ -1268,12 +1231,12 @@ export function Sidebar() {
 
           {/* Empty state */}
           {sessions.length === 0 && !sidebarCollapsed && (
-            <div className="text-center py-8 text-zinc-500">
+            <div className="text-center py-8 text-texto-tenue">
               <Server className="w-8 h-8 mx-auto mb-2 opacity-40" />
               <p className="text-sm mb-3">Aún no hay sesiones</p>
               <button
                 onClick={() => openSessionModal({ mode: 'create' })}
-                className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
+                className="text-acento hover:text-texto text-sm font-medium"
               >
                 Añade tu primera sesión
               </button>
@@ -1283,10 +1246,10 @@ export function Sidebar() {
       </div>
 
       {/* Settings button at bottom */}
-      <div className="p-3 border-t border-zinc-200 dark:border-zinc-800/50">
+      <div className="p-3 border-t border-borde">
         <button
           onClick={() => openSettingsModal()}
-          className="w-full flex items-center gap-3 p-2 rounded-lg transition-colors hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+          className="fila w-full flex items-center gap-3 transition-colors text-texto-suave hover:text-texto"
           title="Configuración"
         >
           <Settings className="w-5 h-5" />
@@ -1296,9 +1259,12 @@ export function Sidebar() {
         </button>
       </div>
     </motion.aside>
-    <DeleteConfirmationDialog
-      target={deleteTarget}
-      isDeleting={isDeleting}
+    <ConfirmDialog
+      open={!!deleteTarget}
+      title={deleteTarget?.type === 'group' ? 'Eliminar carpeta' : 'Eliminar sesión'}
+      description={deleteDescription}
+      busy={isDeleting}
+      busyLabel="Eliminando..."
       onCancel={handleCancelDelete}
       onConfirm={handleConfirmDelete}
     />
@@ -1306,7 +1272,7 @@ export function Sidebar() {
       open={showExportWarn}
       danger={false}
       title="Exportar sesiones"
-      description="El archivo JSON incluirá las contraseñas y passphrases en TEXTO PLANO. Guárdalo en un lugar seguro. ¿Continuar?"
+      description="El archivo JSON incluirá las contraseñas y frases de contraseña en TEXTO PLANO. Guárdalo en un lugar seguro. ¿Continuar?"
       confirmLabel="Exportar"
       onConfirm={handleExport}
       onCancel={() => setShowExportWarn(false)}

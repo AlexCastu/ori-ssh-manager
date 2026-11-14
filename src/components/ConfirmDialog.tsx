@@ -10,6 +10,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancelar',
   danger = true,
   busy = false,
+  busyLabel = 'Procesando...',
   onConfirm,
   onCancel,
 }: {
@@ -20,6 +21,7 @@ export function ConfirmDialog({
   cancelLabel?: string;
   danger?: boolean;
   busy?: boolean;
+  busyLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -45,6 +47,7 @@ export function ConfirmDialog({
       <div
         role="dialog"
         aria-modal="true"
+        aria-label={title}
         className="relative w-full max-w-sm rounded-lg border border-zinc-300 bg-white p-4 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
       >
         <div className="mb-4 flex items-start gap-3">
@@ -72,7 +75,7 @@ export function ConfirmDialog({
             className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${confirmBtn}`}
           >
             {danger && <Trash2 className="h-4 w-4" />}
-            {busy ? 'Procesando...' : confirmLabel}
+            {busy ? busyLabel : confirmLabel}
           </button>
         </div>
       </div>

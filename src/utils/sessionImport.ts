@@ -1,4 +1,5 @@
-import type { AuthMethod, JumpHop, Session, SessionColor } from '../types';
+import type { AuthMethod, JumpHop, Session, SessionColor, SessionGroup } from '../types';
+import { COLOR_NAMES } from './colors';
 
 export type ImportedSession = Omit<Session, 'id' | 'createdAt'> & {
   groupName?: string;
@@ -8,17 +9,6 @@ export interface SessionImportResult {
   sessions: ImportedSession[];
   errors: string[];
 }
-
-const VALID_COLORS: SessionColor[] = [
-  'blue',
-  'green',
-  'purple',
-  'orange',
-  'red',
-  'cyan',
-  'pink',
-  'yellow',
-];
 
 // Values include legacy flat jump columns (jumpHost...) that are folded
 // into the jumpHops array during normalization
@@ -64,7 +54,8 @@ const HEADER_ALIASES: Record<string, string> = {
 };
 
 export function parseSessionsFile(fileName: string, content: string): SessionImportResult {
-  const trimmedContent = content.replace(/^\uFEFF/, '').trim();
+  const fileContent = content.replace(/^\uFEFF/, '');
+  const trimmedContent = fileContent.trim();
   if (!trimmedContent) {
     return { sessions: [], errors: ['El archivo esta vacio'] };
   }
@@ -73,7 +64,25 @@ export function parseSessionsFile(fileName: string, content: string): SessionImp
     return parseJsonSessions(trimmedContent);
   }
 
-  return parseCsvSessions(trimmedContent);
+  return parseCsvSessions(fileContent);
+}
+
+export function resolveImportGroupPath(
+  groupName: string,
+  groups: readonly Pick<SessionGroup, 'id' | 'name' | 'parentId'>[]
+) {
+  const isPath = groupName.includes('/');
+  const names = groupName.split('/').map((name) => name.trim()).filter(Boolean);
+  let parentId: string | null | undefined = null;
+
+  return names.map((name) => {
+    const group = groups.filter((group) =>
+      group.name.trim().toLowerCase() === name.toLowerCase()
+      && (!isPath || (parentId !== undefined && (group.parentId ?? null) === parentId))
+    ).pop();
+    parentId = group?.id;
+    return { name, id: group?.id };
+  });
 }
 
 function parseJsonSessions(content: string): SessionImportResult {
@@ -97,6 +106,9 @@ function parseJsonSessions(content: string): SessionImportResult {
 
 function parseCsvSessions(content: string): SessionImportResult {
   const rows = parseCsvRows(content);
+  if (!rows) {
+    return { sessions: [], errors: ['CSV contiene comillas sin cerrar'] };
+  }
   if (rows.length < 2) {
     return { sessions: [], errors: ['CSV debe incluir cabecera y al menos una sesion'] };
   }
@@ -115,7 +127,7 @@ function parseCsvSessions(content: string): SessionImportResult {
   return normalizeRows(objects, 2);
 }
 
-function parseCsvRows(content: string): string[][] {
+function parseCsvRows(content: string): string[][] | null {
   const delimiter = detectDelimiter(content);
   const rows: string[][] = [];
   let row: string[] = [];
@@ -137,7 +149,7 @@ function parseCsvRows(content: string): string[][] {
     }
 
     if (!inQuotes && char === delimiter) {
-      row.push(field.trim());
+      row.push(field);
       field = '';
       continue;
     }
@@ -146,8 +158,8 @@ function parseCsvRows(content: string): string[][] {
       if (char === '\r' && next === '\n') {
         index += 1;
       }
-      row.push(field.trim());
-      if (row.some((value) => value.length > 0)) {
+      row.push(field);
+      if (row.some((value) => value.trim().length > 0)) {
         rows.push(row);
       }
       row = [];
@@ -158,8 +170,12 @@ function parseCsvRows(content: string): string[][] {
     field += char;
   }
 
-  row.push(field.trim());
-  if (row.some((value) => value.length > 0)) {
+  if (inQuotes) {
+    return null;
+  }
+
+  row.push(field);
+  if (row.some((value) => value.trim().length > 0)) {
     rows.push(row);
   }
 
@@ -167,7 +183,7 @@ function parseCsvRows(content: string): string[][] {
 }
 
 function detectDelimiter(content: string) {
-  const firstLine = content.split(/\r?\n/, 1)[0] ?? '';
+  const firstLine = content.trimStart().split(/\r?\n/, 1)[0] ?? '';
   return firstLine.split(';').length > firstLine.split(',').length ? ';' : ',';
 }
 
@@ -206,8 +222,8 @@ function normalizeSession(row: Record<string, unknown>):
   }
 
   const port = readNumber(row, 'port', 22);
-  if (port < 1 || port > 65535) {
-    return { ok: false, error: 'port debe estar entre 1 y 65535' };
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return { ok: false, error: 'port debe ser un entero entre 1 y 65535' };
   }
 
   const privateKeyPath = readText(row, 'privateKeyPath');
@@ -229,12 +245,14 @@ function normalizeSession(row: Record<string, unknown>):
       port,
       username,
       authMethod,
-      password: authMethod === 'password' ? readText(row, 'password') : undefined,
+      password: authMethod === 'password' ? readSecret(row, 'password') : undefined,
       privateKeyPath: authMethod === 'key' ? privateKeyPath : undefined,
-      privateKeyPassphrase: authMethod === 'key' ? readText(row, 'privateKeyPassphrase') : undefined,
+      privateKeyPassphrase: authMethod === 'key' ? readSecret(row, 'privateKeyPassphrase') : undefined,
       jumpHops: jumpResult.hops,
       usableAsJump: row.usableAsJump === true || readText(row, 'usableAsJump') === 'true',
       color: normalizeColor(readText(row, 'color')),
+      icon: readText(row, 'icon'),
+      notes: readText(row, 'notes'),
       groupName: readText(row, 'groupName'),
     },
   };
@@ -256,8 +274,8 @@ function normalizeJumpHops(
         return { ok: false, error: 'cada salto de jumpHops necesita host' };
       }
       const hopPort = readNumber(raw, 'port', 22);
-      if (hopPort < 1 || hopPort > 65535) {
-        return { ok: false, error: 'port de salto debe estar entre 1 y 65535' };
+      if (!Number.isInteger(hopPort) || hopPort < 1 || hopPort > 65535) {
+        return { ok: false, error: 'port de salto debe ser un entero entre 1 y 65535' };
       }
       hops.push({
         name: readText(raw, 'name'),
@@ -265,9 +283,9 @@ function normalizeJumpHops(
         port: hopPort,
         username: readText(raw, 'username') ?? '',
         authMethod: normalizeAuthMethod(readText(raw, 'authMethod'), readText(raw, 'privateKeyPath')),
-        password: readText(raw, 'password'),
+        password: readSecret(raw, 'password'),
         privateKeyPath: readText(raw, 'privateKeyPath'),
-        privateKeyPassphrase: readText(raw, 'privateKeyPassphrase'),
+        privateKeyPassphrase: readSecret(raw, 'privateKeyPassphrase'),
       });
     }
     return { ok: true, hops };
@@ -278,8 +296,8 @@ function normalizeJumpHops(
     return { ok: true, hops: [] };
   }
   const jumpPort = readNumber(row, 'jumpPort', 22);
-  if (jumpPort < 1 || jumpPort > 65535) {
-    return { ok: false, error: 'jumpPort debe estar entre 1 y 65535' };
+  if (!Number.isInteger(jumpPort) || jumpPort < 1 || jumpPort > 65535) {
+    return { ok: false, error: 'jumpPort debe ser un entero entre 1 y 65535' };
   }
   return {
     ok: true,
@@ -289,7 +307,7 @@ function normalizeJumpHops(
         port: jumpPort,
         username: readText(row, 'jumpUsername') ?? '',
         authMethod: 'password',
-        password: readText(row, 'jumpPassword'),
+        password: readSecret(row, 'jumpPassword'),
       },
     ],
   };
@@ -308,6 +326,9 @@ function normalizeInputRow(row: Record<string, unknown>) {
 
 function normalizeAuthMethod(value: string | undefined, privateKeyPath: string | undefined): AuthMethod {
   const normalized = value?.toLowerCase();
+  if (normalized === 'agent' || normalized === 'password') {
+    return normalized;
+  }
   if (normalized === 'key' || normalized === 'ssh_key' || normalized === 'private_key') {
     return 'key';
   }
@@ -315,7 +336,7 @@ function normalizeAuthMethod(value: string | undefined, privateKeyPath: string |
 }
 
 function normalizeColor(value: string | undefined): SessionColor {
-  return VALID_COLORS.includes(value as SessionColor) ? (value as SessionColor) : 'blue';
+  return COLOR_NAMES.includes(value as SessionColor) ? (value as SessionColor) : 'blue';
 }
 
 function readText(row: Record<string, unknown>, key: string): string | undefined {
@@ -332,8 +353,15 @@ function readNumber(row: Record<string, unknown>, key: string, fallback: number)
   if (!value) {
     return fallback;
   }
-  const number = Number(value);
-  return Number.isFinite(number) ? number : fallback;
+  return Number(value);
+}
+
+function readSecret(row: Record<string, unknown>, key: string): string | undefined {
+  const value = row[key];
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  return String(value) || undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -69,11 +69,8 @@ export type SessionColor =
 
 export type TerminalTheme = 'nord-dark' | 'nord-light';
 
-export type AppTheme = 'light' | 'dark' | 'system';
-
 export interface AppSettings {
   terminalTheme: TerminalTheme;
-  appTheme: AppTheme;
   terminalFontSize?: TerminalFontSize;
   cursorStyle?: TerminalCursorStyle;
   scrollback?: TerminalScrollback;
@@ -135,15 +132,7 @@ export interface TerminalTab {
   sessionId: string;
   channelId?: string;
   title: string;
-  isActive: boolean;
   status: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
-}
-
-export interface TabBuffersState {
-  tabBuffers: Record<string, string>;
-  setTabBuffer: (tabId: string, text: string) => void;
-  appendTabBuffer: (tabId: string, chunk: string) => void;
-  getTabBuffer: (tabId: string) => string | undefined;
 }
 
 // ==================== UI STATE TYPES ====================
@@ -208,7 +197,7 @@ export interface UISlice {
   toasts: ToastMessage[];
   sessionModal: ModalState & { data?: { session?: Session; mode: 'create' | 'edit' } };
   groupModal: ModalState & { data?: { group?: SessionGroup; mode: 'create' | 'edit'; parentId?: string | null } };
-  commandModal: ModalState & { data?: { command?: SavedCommand; mode?: 'create' | 'edit' } };
+  commandModal: ModalState & { data?: { command?: SavedCommand; mode?: 'create' | 'edit'; sessionId?: string } };
   infoModal: ModalState & { data?: { session: Session } };
   settingsModal: ModalState;
   commandPaletteOpen: boolean;
@@ -222,7 +211,7 @@ export interface UISlice {
   closeSessionModal: () => void;
   openGroupModal: (data: { group?: SessionGroup; mode: 'create' | 'edit'; parentId?: string | null }) => void;
   closeGroupModal: () => void;
-  openCommandModal: (data?: { command?: SavedCommand; mode?: 'create' | 'edit' }) => void;
+  openCommandModal: (data?: { command?: SavedCommand; mode?: 'create' | 'edit'; sessionId?: string }) => void;
   closeCommandModal: () => void;
   openInfoModal: (data: { session: Session }) => void;
   closeInfoModal: () => void;
@@ -244,4 +233,4 @@ export interface SettingsSlice {
 export type AppStore = SessionsSlice & SessionGroupsSlice & CommandsSlice & TerminalsSlice & UISlice & SettingsSlice & {
   isInitialized: boolean;
   initialize: () => Promise<void>;
-} & TabBuffersState;
+};

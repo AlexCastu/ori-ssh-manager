@@ -187,6 +187,7 @@ function SessionMap({
   return (
     <div className="h-full w-full">
       <ReactFlow
+        key={connected ? 'connected' : 'disconnected'}
         defaultNodes={nodes}
         defaultEdges={edges}
         nodeTypes={nodeTypes}

@@ -7,7 +7,7 @@ export function AnchoredMenu({
   anchor,
   align = 'right',
   onClose,
-  className = 'py-1 min-w-[120px]',
+  className = 'p-1 min-w-[120px]',
   children,
 }: {
   anchor: DOMRect;
@@ -36,7 +36,7 @@ export function AnchoredMenu({
         }}
       />
       <div
-        className={`fixed z-[95] bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg shadow-xl ${className}`}
+        className={`fixed z-[95] bg-modal backdrop-blur-2xl border border-borde-fuerte rounded-xl shadow-xl ${className}`}
         style={style}
         onClick={(e) => e.stopPropagation()}
       >

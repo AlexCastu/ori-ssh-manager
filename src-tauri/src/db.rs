@@ -206,6 +206,20 @@ fn plaintext_secret_err() -> rusqlite::Error {
     )))
 }
 
+fn keyring_read_err(reason: &str) -> rusqlite::Error {
+    json_err(std::io::Error::other(format!(
+        "No se pudo leer la clave de cifrado del llavero del sistema ({reason}). \
+         No se genera una nueva para no perder las credenciales guardadas."
+    )))
+}
+
+fn missing_encryption_key_err() -> rusqlite::Error {
+    json_err(std::io::Error::other(
+        "La base de datos tiene credenciales cifradas pero no se encuentra su clave. \
+         No se genera una nueva para no perderlas.",
+    ))
+}
+
 /// Encrypt a secret with AES-256-GCM, output format `v1:<nonce_b64>:<data_b64>`
 fn encrypt_value(key: &[u8; 32], plaintext: &str) -> SqliteResult<String> {
     if plaintext.is_empty() {
@@ -311,6 +325,66 @@ pub fn data_dir() -> &'static PathBuf {
     })
 }
 
+/// True when the DB already holds secrets encrypted with some key. Only looks
+/// at columns that exist (older DBs lack some). jump_chain is matched as text,
+/// not parsed: a corrupt JSON row must not stop the app from starting.
+fn has_encrypted_secrets(conn: &Connection) -> SqliteResult<bool> {
+    let mut stmt = conn.prepare(
+        "SELECT name FROM pragma_table_info('sessions')
+         WHERE name IN ('password', 'private_key_passphrase', 'jump_password', 'jump_chain')",
+    )?;
+    let conditions = stmt
+        .query_map([], |row| {
+            let column: String = row.get(0)?;
+            Ok(if column == "jump_chain" {
+                r#"jump_chain LIKE '%"v1:%'"#.to_string()
+            } else {
+                format!("{column} GLOB 'v1:*'")
+            })
+        })?
+        .collect::<SqliteResult<Vec<_>>>()?;
+    if conditions.is_empty() {
+        return Ok(false);
+    }
+    conn.query_row(
+        &format!(
+            "SELECT EXISTS(SELECT 1 FROM sessions WHERE {})",
+            conditions.join(" OR ")
+        ),
+        [],
+        |row| row.get(0),
+    )
+}
+
+fn migrate_auth_columns(conn: &Connection) -> SqliteResult<()> {
+    let has_column = |name: &str| -> bool {
+        conn.prepare(&format!(
+            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name='{}'",
+            name
+        ))
+        .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, i32>(0)))
+        .map(|count| count > 0)
+        .unwrap_or(false)
+    };
+
+    if !has_column("auth_method") {
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'",
+            [],
+        )?;
+    }
+    if !has_column("private_key_path") {
+        conn.execute("ALTER TABLE sessions ADD COLUMN private_key_path TEXT", [])?;
+    }
+    if !has_column("private_key_passphrase") {
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN private_key_passphrase TEXT",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
 impl Database {
     pub fn new() -> SqliteResult<Self> {
         let base_dir: PathBuf = data_dir().clone();
@@ -328,7 +402,14 @@ impl Database {
             }
         }
 
-        let key = load_or_create_key(&key_path)?;
+        let has_encrypted_secrets = if db_path.try_exists().map_err(json_err)? {
+            let conn =
+                Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            has_encrypted_secrets(&conn)?
+        } else {
+            false
+        };
+        let key = load_or_create_key(&key_path, has_encrypted_secrets)?;
         let conn = Connection::open(&db_path)?;
 
         // WAL avoids reader/writer blocking; NORMAL sync is safe with WAL
@@ -369,18 +450,8 @@ impl Database {
             conn.execute("ALTER TABLE sessions ADD COLUMN group_id TEXT", [])?;
         }
 
-        // Migration: add auth_method if missing
-        if !has_column(&conn, "auth_method") {
-            conn.execute(
-                "ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'password'",
-                [],
-            )?;
-            conn.execute("ALTER TABLE sessions ADD COLUMN private_key_path TEXT", [])?;
-            conn.execute(
-                "ALTER TABLE sessions ADD COLUMN private_key_passphrase TEXT",
-                [],
-            )?;
-        }
+        // Migration: add auth columns if missing
+        migrate_auth_columns(&conn)?;
 
         // Migration: add jump_chain (multi-hop tunnel) if missing
         if !has_column(&conn, "jump_chain") {
@@ -754,10 +825,10 @@ impl Database {
             _ => existing.as_ref().and_then(|e| e.1.clone()),
         };
 
-        // Per-hop secrets: empty means "keep the stored secret of the hop at
-        // the same position" (matches the single-field behavior above)
+        // Per-hop secrets: empty means "keep the stored secret of the hop with
+        // the same host, port and username" (matches the single-field behavior above)
         let mut enc_hops: Vec<JumpHop> = Vec::with_capacity(session.jump_hops.len());
-        for (idx, hop) in session.jump_hops.iter().enumerate() {
+        for hop in &session.jump_hops {
             // A session reference stores only the id (+ optional label); its
             // connection fields/secrets live in the referenced session and are
             // resolved on read, so we blank them here to avoid stale copies.
@@ -776,7 +847,12 @@ impl Database {
                 continue;
             }
 
-            let stored = existing_hops.get(idx);
+            let stored = existing_hops.iter().find(|stored| {
+                stored.ref_session_id.is_none()
+                    && stored.host == hop.host
+                    && stored.port == hop.port
+                    && stored.username == hop.username
+            });
             let password = match &hop.password {
                 Some(pwd) if !pwd.is_empty() => Some(self.encrypt(pwd)?),
                 _ => stored.and_then(|h| h.password.clone()),
@@ -804,11 +880,27 @@ impl Database {
         };
 
         conn.execute(
-            "INSERT OR REPLACE INTO sessions
+            "INSERT INTO sessions
              (id, name, host, port, username, auth_method, password, private_key_path,
               private_key_passphrase, jump_chain, color, group_id, created_at, icon, notes,
               usable_as_jump)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                host = excluded.host,
+                port = excluded.port,
+                username = excluded.username,
+                auth_method = excluded.auth_method,
+                password = excluded.password,
+                private_key_path = excluded.private_key_path,
+                private_key_passphrase = excluded.private_key_passphrase,
+                jump_chain = excluded.jump_chain,
+                color = excluded.color,
+                group_id = excluded.group_id,
+                created_at = excluded.created_at,
+                icon = excluded.icon,
+                notes = excluded.notes,
+                usable_as_jump = excluded.usable_as_jump",
             params![
                 session.id,
                 session.name,
@@ -841,11 +933,32 @@ impl Database {
             let conn = self.conn.lock().unwrap();
 
             let group_names: HashMap<String, String> = {
-                let mut stmt = conn.prepare("SELECT id, name FROM groups")?;
+                let mut stmt = conn.prepare("SELECT id, name, parent_id FROM groups")?;
                 let rows = stmt.query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        (row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?),
+                    ))
                 })?;
-                rows.collect::<SqliteResult<_>>()?
+                let groups: HashMap<String, (String, Option<String>)> =
+                    rows.collect::<SqliteResult<_>>()?;
+                groups
+                    .keys()
+                    .map(|id| {
+                        let mut names = Vec::new();
+                        let mut current = Some(id.as_str());
+                        for _ in 0..groups.len() {
+                            let Some((name, parent_id)) = current.and_then(|id| groups.get(id))
+                            else {
+                                break;
+                            };
+                            names.push(name.as_str());
+                            current = parent_id.as_deref();
+                        }
+                        names.reverse();
+                        (id.clone(), names.join("/"))
+                    })
+                    .collect()
             };
 
             let sessions: Vec<Session> = {
@@ -1196,21 +1309,32 @@ const KEYRING_USER: &str = "db-encryption-key";
 /// 1. OS keychain (macOS Keychain / Windows Credential Manager)
 /// 2. Legacy key.bin file (migrated to the keychain and deleted)
 /// 3. key.bin fallback when no keychain backend is available
-fn load_or_create_key(legacy_path: &PathBuf) -> SqliteResult<[u8; 32]> {
+fn load_or_create_key(
+    legacy_path: &PathBuf,
+    has_encrypted_secrets: bool,
+) -> SqliteResult<[u8; 32]> {
     if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
         // Existing key in the OS keychain (zeroize every intermediate buffer)
-        if let Ok(mut stored) = entry.get_password() {
-            let decoded = general_purpose::STANDARD.decode(&stored);
-            stored.zeroize();
-            if let Ok(mut bytes) = decoded {
-                if bytes.len() == 32 {
-                    let mut key = [0u8; 32];
-                    key.copy_from_slice(&bytes);
+        match entry.get_password() {
+            Ok(mut stored) => {
+                let decoded = general_purpose::STANDARD.decode(&stored);
+                stored.zeroize();
+                let mut bytes = decoded.map_err(|_| keyring_read_err("formato base64 inválido"))?;
+                if bytes.len() != 32 {
                     bytes.zeroize();
-                    return Ok(key);
+                    return Err(keyring_read_err("la clave no tiene 32 bytes"));
                 }
+                let mut key = [0u8; 32];
+                key.copy_from_slice(&bytes);
                 bytes.zeroize();
+                return Ok(key);
             }
+            Err(keyring::Error::NoEntry) => {}
+            // Ambiguous's Display includes the credentials' Debug output.
+            Err(keyring::Error::Ambiguous(_)) => {
+                return Err(keyring_read_err("hay varias entradas para la clave"));
+            }
+            Err(error) => return Err(keyring_read_err(&error.to_string())),
         }
 
         // Migrate legacy key.bin into the keychain (delete file only on success)
@@ -1228,6 +1352,9 @@ fn load_or_create_key(legacy_path: &PathBuf) -> SqliteResult<[u8; 32]> {
             existing.zeroize();
         }
 
+        if has_encrypted_secrets {
+            return Err(missing_encryption_key_err());
+        }
         // First run: generate and store in the keychain
         let mut key = [0u8; 32];
         OsRng.fill_bytes(&mut key);
@@ -1247,6 +1374,9 @@ fn load_or_create_key(legacy_path: &PathBuf) -> SqliteResult<[u8; 32]> {
             return Ok(key);
         }
         existing.zeroize();
+    }
+    if has_encrypted_secrets {
+        return Err(missing_encryption_key_err());
     }
     let mut key = [0u8; 32];
     OsRng.fill_bytes(&mut key);
@@ -1276,6 +1406,42 @@ fn write_key_file(path: &PathBuf, key: [u8; 32]) -> SqliteResult<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    enum TestKeyringBuilder {
+        Password(Option<String>),
+        ReadError(Mutex<Option<keyring::Error>>),
+        Unavailable,
+    }
+
+    impl keyring::credential::CredentialBuilderApi for TestKeyringBuilder {
+        fn build(
+            &self,
+            _target: Option<&str>,
+            _service: &str,
+            _user: &str,
+        ) -> keyring::Result<Box<keyring::credential::Credential>> {
+            let credential = keyring::mock::MockCredential::default();
+            match self {
+                Self::Password(Some(password)) => {
+                    keyring::credential::CredentialApi::set_password(&credential, password)?;
+                }
+                Self::ReadError(error) => {
+                    credential.set_error(error.lock().unwrap().take().unwrap());
+                }
+                Self::Unavailable => {
+                    return Err(keyring::Error::PlatformFailure(Box::new(
+                        std::io::Error::other("No test keyring backend"),
+                    )));
+                }
+                Self::Password(None) => {}
+            }
+            Ok(Box::new(credential))
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
 
     fn test_key() -> [u8; 32] {
         let mut key = [0u8; 32];
@@ -1384,6 +1550,339 @@ mod tests {
         s.password = Some("jump-secret".to_string());
         s.usable_as_jump = true;
         s
+    }
+
+    #[test]
+    fn load_or_create_key_rejects_keyring_errors_and_invalid_keys() {
+        let path = std::env::temp_dir().join(format!("ori-008-key-{}.bin", uuid::Uuid::new_v4()));
+        for error in [
+            keyring::Error::NoStorageAccess(Box::new(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Test keyring locked",
+            ))),
+            keyring::Error::PlatformFailure(Box::new(std::io::Error::other("Test failure"))),
+            keyring::Error::BadEncoding(vec![0xff]),
+            keyring::Error::Ambiguous(Vec::new()),
+        ] {
+            keyring::set_default_credential_builder(Box::new(TestKeyringBuilder::ReadError(
+                Mutex::new(Some(error)),
+            )));
+            let error = load_or_create_key(&path, false)
+                .err()
+                .expect("Keyring read failure must stop key loading");
+            assert!(error
+                .to_string()
+                .contains("No se pudo leer la clave de cifrado"));
+            assert!(!path.exists());
+        }
+
+        fs::write(&path, test_key()).unwrap();
+        for stored in [
+            String::new(),
+            "!invalid-base64!".to_string(),
+            general_purpose::STANDARD.encode([0u8; 31]),
+            general_purpose::STANDARD.encode([0u8; 33]),
+        ] {
+            keyring::set_default_credential_builder(Box::new(TestKeyringBuilder::Password(Some(
+                stored.clone(),
+            ))));
+            let error = load_or_create_key(&path, false)
+                .err()
+                .expect("Invalid keyring key must stop key loading");
+            assert!(error
+                .to_string()
+                .contains("No se pudo leer la clave de cifrado"));
+            if !stored.is_empty() {
+                assert!(!error.to_string().contains(&stored));
+            }
+            assert!(fs::read(&path).unwrap() == test_key());
+        }
+        fs::remove_file(&path).unwrap();
+
+        let db = test_database();
+        db.save_session(&test_session("s1")).unwrap();
+        let encrypted = has_encrypted_secrets(&db.conn.lock().unwrap()).unwrap();
+        assert!(encrypted);
+        for builder in [
+            TestKeyringBuilder::Password(None),
+            TestKeyringBuilder::Unavailable,
+        ] {
+            keyring::set_default_credential_builder(Box::new(builder));
+            let error = load_or_create_key(&path, encrypted)
+                .err()
+                .expect("Encrypted credentials without a key must stop key generation");
+            assert_eq!(
+                error.to_string(),
+                "La base de datos tiene credenciales cifradas pero no se encuentra su clave. \
+                 No se genera una nueva para no perderlas."
+            );
+            assert!(!path.exists());
+
+            fs::write(&path, [0u8; 31]).unwrap();
+            assert!(load_or_create_key(&path, encrypted).is_err());
+            assert!(fs::read(&path).unwrap() == [0u8; 31]);
+
+            fs::write(&path, test_key()).unwrap();
+            assert!(load_or_create_key(&path, encrypted).unwrap() == test_key());
+            if path.exists() {
+                fs::remove_file(&path).unwrap();
+            }
+        }
+
+        keyring::set_default_credential_builder(Box::new(TestKeyringBuilder::Password(Some(
+            general_purpose::STANDARD.encode(test_key()),
+        ))));
+        assert!(load_or_create_key(&path, encrypted).unwrap() == test_key());
+        assert!(!path.exists());
+
+        for builder in [
+            TestKeyringBuilder::Password(None),
+            TestKeyringBuilder::Unavailable,
+        ] {
+            keyring::set_default_credential_builder(Box::new(builder));
+            assert!(load_or_create_key(&path, false).is_ok());
+            if path.exists() {
+                fs::remove_file(&path).unwrap();
+            }
+        }
+        keyring::set_default_credential_builder(keyring::default::default_credential_builder());
+    }
+
+    #[test]
+    fn migrate_auth_columns_repairs_partial_schema() {
+        for missing_column in ["private_key_passphrase", "private_key_path", "auth_method"] {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch(
+                "CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY,
+                    auth_method TEXT NOT NULL DEFAULT 'password',
+                    private_key_path TEXT,
+                    private_key_passphrase TEXT
+                 );
+                 INSERT INTO sessions VALUES ('s1', 'key', 'id_rsa', 'v1:stored');",
+            )
+            .unwrap();
+            conn.execute(
+                &format!("ALTER TABLE sessions DROP COLUMN {}", missing_column),
+                [],
+            )
+            .unwrap();
+
+            migrate_auth_columns(&conn).unwrap();
+            migrate_auth_columns(&conn).unwrap();
+
+            let (method, path, passphrase): (String, Option<String>, Option<String>) = conn
+                .query_row(
+                    "SELECT auth_method, private_key_path, private_key_passphrase
+                     FROM sessions WHERE id = 's1'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(
+                method,
+                if missing_column == "auth_method" {
+                    "password"
+                } else {
+                    "key"
+                }
+            );
+            assert_eq!(
+                path.as_deref(),
+                if missing_column == "private_key_path" {
+                    None
+                } else {
+                    Some("id_rsa")
+                }
+            );
+            assert_eq!(
+                passphrase.as_deref(),
+                if missing_column == "private_key_passphrase" {
+                    None
+                } else {
+                    Some("v1:stored")
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn has_encrypted_secrets_handles_missing_table_and_legacy_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        assert!(!has_encrypted_secrets(&conn).unwrap());
+        conn.execute_batch("CREATE TABLE sessions (password TEXT);")
+            .unwrap();
+        assert!(!has_encrypted_secrets(&conn).unwrap());
+        conn.execute(
+            "INSERT INTO sessions (password) VALUES ('legacy plaintext')",
+            [],
+        )
+        .unwrap();
+        assert!(!has_encrypted_secrets(&conn).unwrap());
+        conn.execute("UPDATE sessions SET password = 'v1:encrypted'", [])
+            .unwrap();
+        assert!(has_encrypted_secrets(&conn).unwrap());
+    }
+
+    #[test]
+    fn has_encrypted_secrets_ignores_empty_and_plaintext_values() {
+        let db = test_database();
+        let mut session = test_session("s1");
+        session.password = None;
+        assert!(!has_encrypted_secrets(&db.conn.lock().unwrap()).unwrap());
+        db.save_session(&session).unwrap();
+        let conn = db.conn.lock().unwrap();
+        assert!(!has_encrypted_secrets(&conn).unwrap());
+        for value in ["", "legacy plaintext", "V1:uppercase", "prefix-v1:value"] {
+            conn.execute(
+                "UPDATE sessions SET password = ?1, private_key_passphrase = ?1, jump_chain = ?2",
+                params![value, r#"[{"host":"bastion","password":"plaintext"}]"#],
+            )
+            .unwrap();
+            assert!(!has_encrypted_secrets(&conn).unwrap());
+        }
+        conn.execute("UPDATE sessions SET jump_chain = '   '", [])
+            .unwrap();
+        assert!(!has_encrypted_secrets(&conn).unwrap());
+        // Corrupt JSON must not make startup fail
+        conn.execute("UPDATE sessions SET jump_chain = '[{broken'", [])
+            .unwrap();
+        assert!(!has_encrypted_secrets(&conn).unwrap());
+    }
+
+    #[test]
+    fn has_encrypted_secrets_detects_session_password_and_passphrase() {
+        for (password, passphrase) in [(Some("password"), None), (None, Some("passphrase"))] {
+            let db = test_database();
+            let mut session = test_session("s1");
+            session.password = password.map(str::to_string);
+            session.private_key_passphrase = passphrase.map(str::to_string);
+            db.save_session(&session).unwrap();
+            assert!(has_encrypted_secrets(&db.conn.lock().unwrap()).unwrap());
+        }
+    }
+
+    #[test]
+    fn has_encrypted_secrets_detects_jump_password_and_passphrase() {
+        for (password, passphrase) in [(Some("password"), None), (None, Some("passphrase"))] {
+            let db = test_database();
+            let mut session = test_session("s1");
+            session.password = None;
+            session.jump_hops = vec![JumpHop {
+                name: None,
+                ref_session_id: None,
+                host: "jump".to_string(),
+                port: 22,
+                username: "ops".to_string(),
+                auth_method: "password".to_string(),
+                password: password.map(str::to_string),
+                private_key_path: None,
+                private_key_passphrase: passphrase.map(str::to_string),
+            }];
+            db.save_session(&session).unwrap();
+            assert!(has_encrypted_secrets(&db.conn.lock().unwrap()).unwrap());
+        }
+    }
+
+    #[test]
+    fn save_session_preserves_commands_and_logs() {
+        let db = test_database();
+        let mut session = test_session("s1");
+        db.save_session(&session).unwrap();
+        let command = SavedCommand {
+            id: "command-session".to_string(),
+            session_id: Some(session.id.clone()),
+            name: "Session command".to_string(),
+            command: "uptime".to_string(),
+            notes: None,
+        };
+        db.save_command(&command).unwrap();
+        let log = test_log(
+            &session.id,
+            "2026-06-14T10:00:00.000Z",
+            "event",
+            "connected",
+        );
+        db.add_session_log(&log).unwrap();
+        assert_eq!(db.get_commands(Some(&session.id)).unwrap().len(), 1);
+        assert_eq!(db.get_session_logs(&session.id, None).unwrap().len(), 1);
+
+        session.name = "Renamed session".to_string();
+        session.color = "red".to_string();
+        session.created_at = "2026-06-14T11:00:00.000Z".to_string();
+        db.save_session(&session).unwrap();
+
+        let commands = db.get_commands(Some(&session.id)).unwrap();
+        let logs = db.get_session_logs(&session.id, None).unwrap();
+        assert_eq!((commands.len(), logs.len()), (1, 1));
+        assert_eq!(commands[0].id, command.id);
+        assert_eq!(commands[0].session_id, command.session_id);
+        assert_eq!(commands[0].command, command.command);
+        assert_eq!(logs[0].id, log.id);
+        assert_eq!(logs[0].session_id, log.session_id);
+        assert_eq!(logs[0].message, log.message);
+        let sessions = db.get_sessions().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].name, session.name);
+        assert_eq!(sessions[0].color, session.color);
+        assert_eq!(sessions[0].created_at, session.created_at);
+    }
+
+    #[test]
+    fn save_session_preserves_jump_secret_after_removing_previous_hop() {
+        let db = test_database();
+        let mut session = test_session("s1");
+        session.jump_hops = [("jump-a", "secret-a"), ("jump-b", "secret-b")]
+            .into_iter()
+            .map(|(host, password)| JumpHop {
+                name: None,
+                ref_session_id: None,
+                host: host.to_string(),
+                port: 22,
+                username: String::new(),
+                auth_method: "password".to_string(),
+                password: Some(password.to_string()),
+                private_key_path: None,
+                private_key_passphrase: None,
+            })
+            .collect();
+        db.save_session(&session).unwrap();
+
+        session.jump_hops.remove(0);
+        session.jump_hops[0].password = Some(String::new());
+        db.save_session(&session).unwrap();
+
+        let saved = db.get_session_secrets("s1").unwrap();
+        assert_eq!(saved.jump_hops.len(), 1);
+        assert_eq!(saved.jump_hops[0].host, "jump-b");
+        assert_eq!(saved.jump_hops[0].password.as_deref(), Some("secret-b"));
+    }
+
+    #[test]
+    fn save_session_clears_jump_secret_when_host_changes() {
+        let db = test_database();
+        let mut session = test_session("s1");
+        session.jump_hops = vec![JumpHop {
+            name: None,
+            ref_session_id: None,
+            host: "jump-a".to_string(),
+            port: 22,
+            username: "ops".to_string(),
+            auth_method: "password".to_string(),
+            password: Some("secret-a".to_string()),
+            private_key_path: None,
+            private_key_passphrase: None,
+        }];
+        db.save_session(&session).unwrap();
+
+        session.jump_hops[0].host = "jump-b".to_string();
+        session.jump_hops[0].password = Some(String::new());
+        db.save_session(&session).unwrap();
+
+        let saved = db.get_session_secrets("s1").unwrap();
+        assert_eq!(saved.jump_hops.len(), 1);
+        assert_eq!(saved.jump_hops[0].host, "jump-b");
+        assert_eq!(saved.jump_hops[0].password, None);
     }
 
     #[test]
@@ -1707,6 +2206,77 @@ mod tests {
         // Internal-only fields are not part of the export shape
         assert!(!json.contains("\"groupId\""));
         assert!(!json.contains("\"createdAt\""));
+    }
+
+    #[test]
+    fn export_preserves_full_group_paths_with_repeated_child_names() {
+        let db = test_database();
+        for (id, name, parent) in [
+            ("root-a", "Parent A", None),
+            ("root-b", "Parent B", None),
+            ("child-a", "Shared", Some("root-a")),
+            ("child-b", "Shared", Some("root-b")),
+            ("leaf", "Leaf", Some("child-a")),
+        ] {
+            db.save_group(&SessionGroup {
+                id: id.to_string(),
+                name: name.to_string(),
+                color: "blue".to_string(),
+                icon: "folder".to_string(),
+                is_expanded: true,
+                sort_order: 0,
+                parent_id: parent.map(str::to_string),
+                notes: None,
+            })
+            .unwrap();
+        }
+        for id in ["root-a", "child-a", "child-b", "leaf"] {
+            let mut session = test_session(id);
+            session.name = id.to_string();
+            session.group_id = Some(id.to_string());
+            db.save_session(&session).unwrap();
+        }
+
+        let (json, count) = db.export_sessions_json().unwrap();
+        let exported: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert_eq!(count, 4);
+        let paths: Vec<_> = exported
+            .iter()
+            .map(|session| session["groupName"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "Parent A/Shared",
+                "Parent B/Shared",
+                "Parent A/Shared/Leaf",
+                "Parent A",
+            ]
+        );
+    }
+
+    #[test]
+    fn export_bounds_group_path_traversal_on_cycles() {
+        let db = test_database();
+        db.save_group(&SessionGroup {
+            id: "cycle".to_string(),
+            name: "Cycle".to_string(),
+            color: "blue".to_string(),
+            icon: "folder".to_string(),
+            is_expanded: true,
+            sort_order: 0,
+            parent_id: Some("cycle".to_string()),
+            notes: None,
+        })
+        .unwrap();
+        let mut session = test_session("s1");
+        session.group_id = Some("cycle".to_string());
+        db.save_session(&session).unwrap();
+
+        let (json, count) = db.export_sessions_json().unwrap();
+        let exported: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(exported[0]["groupName"], "Cycle");
     }
 
     #[test]

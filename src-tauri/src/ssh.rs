@@ -19,12 +19,14 @@ use std::time::Duration;
 use tauri::Emitter;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::Notify;
+use tokio::sync::{Mutex as AsyncMutex, Notify};
 use uuid::Uuid;
 
 // Tuning constants
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
+const CHANNEL_OPEN_TIMEOUT: Duration = Duration::from_secs(15);
 // Coalesce PTY output: emit one IPC event per batch instead of per message.
 // With data pending, wait this long for more before flushing (echo latency cap)
 const FLUSH_INTERVAL: Duration = Duration::from_millis(4);
@@ -61,7 +63,7 @@ pub enum SshError {
 /// Everything a live terminal needs: the write half feeds keystrokes/resizes,
 /// the handles keep the SSH session (and every jump hop's session) alive.
 struct ChannelEntry {
-    write: ChannelWriteHalf<client::Msg>,
+    write: AsyncMutex<ChannelWriteHalf<client::Msg>>,
     handle: Handle<TofuHandler>,
     // Dropping a hop handle tears its session down, so they live here
     #[allow(dead_code)]
@@ -473,16 +475,34 @@ where
         SshError::ConnectionFailed(format!("{}:{}: SSH handshake timeout", host, port))
     })??;
 
-    authenticate(
-        &mut handle,
-        username,
-        auth_method,
-        password,
-        private_key_path,
-        private_key_passphrase,
+    tokio::time::timeout(
+        AUTH_TIMEOUT,
+        authenticate(
+            &mut handle,
+            username,
+            auth_method,
+            password,
+            private_key_path,
+            private_key_passphrase,
+        ),
     )
-    .await?;
+    .await
+    .map_err(|_| SshError::ConnectionFailed(format!("{}:{}: SSH login timeout", host, port)))??;
     Ok(handle)
+}
+
+fn validate_jump_refs(hops: &[JumpHop]) -> Result<(), SshError> {
+    if hops.iter().any(|hop| {
+        hop.ref_session_id
+            .as_deref()
+            .is_some_and(|id| !id.is_empty())
+            && hop.host.trim().is_empty()
+    }) {
+        return Err(SshError::ConnectionFailed(
+            "La máquina de salto ya no existe: edita los saltos de esta sesión".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn hop_port(hop: &JumpHop) -> u16 {
@@ -589,15 +609,23 @@ async fn open_chain_stream(
             ),
         );
 
-        let channel = session
-            .channel_open_direct_tcpip(next_host, next_port as u32, "127.0.0.1", 0)
-            .await
-            .map_err(|e| {
-                SshError::ChannelError(format!(
-                    "Tunnel from {} to {}:{}: {}",
-                    hop.host, next_host, next_port, e
-                ))
-            })?;
+        let channel = tokio::time::timeout(
+            CHANNEL_OPEN_TIMEOUT,
+            session.channel_open_direct_tcpip(next_host, next_port as u32, "127.0.0.1", 0),
+        )
+        .await
+        .map_err(|_| {
+            SshError::ChannelError(format!(
+                "{}:{}: SSH channel open timeout (tunnel from {})",
+                next_host, next_port, hop.host
+            ))
+        })?
+        .map_err(|e| {
+            SshError::ChannelError(format!(
+                "Tunnel from {} to {}:{}: {}",
+                hop.host, next_host, next_port, e
+            ))
+        })?;
         let stream = channel.into_stream();
 
         match hops.get(i + 1) {
@@ -676,6 +704,8 @@ impl SshManager {
         // Clean up any dead channels first
         self.cleanup_dead_channels();
 
+        validate_jump_refs(&config.jump_hops)?;
+
         let port = config.port.clamp(1, 65535) as u16;
         let valid_hops: Vec<JumpHop> = config
             .jump_hops
@@ -733,19 +763,29 @@ impl SshManager {
             (handle, hop_handles)
         };
 
-        let channel = handle.channel_open_session().await?;
-        channel
-            .request_pty(
-                false,
-                "xterm-256color",
-                cols.unwrap_or(80) as u32,
-                rows.unwrap_or(24) as u32,
-                0,
-                0,
-                &[],
-            )
-            .await?;
-        channel.request_shell(false).await?;
+        let channel = tokio::time::timeout(CHANNEL_OPEN_TIMEOUT, async {
+            let channel = handle.channel_open_session().await?;
+            channel
+                .request_pty(
+                    false,
+                    "xterm-256color",
+                    cols.unwrap_or(80) as u32,
+                    rows.unwrap_or(24) as u32,
+                    0,
+                    0,
+                    &[],
+                )
+                .await?;
+            channel.request_shell(false).await?;
+            Ok::<_, russh::Error>(channel)
+        })
+        .await
+        .map_err(|_| {
+            SshError::ChannelError(format!(
+                "{}:{}: SSH channel open timeout",
+                config.host, port
+            ))
+        })??;
 
         let (mut read_half, write_half) = channel.split();
         let channel_id = Uuid::new_v4().to_string();
@@ -761,9 +801,6 @@ impl SshManager {
             let mut pending: Vec<u8> = Vec::with_capacity(FLUSH_THRESHOLD);
             let mut exit_status: Option<i32> = None;
             let mut eof_seen = false;
-            // true when the frontend asked to disconnect (no pty_closed event)
-            let mut external_close = false;
-
             loop {
                 let wait_for = if pending.is_empty() {
                     IDLE_WAIT
@@ -773,7 +810,6 @@ impl SshManager {
 
                 tokio::select! {
                     _ = notify.notified() => {
-                        external_close = true;
                         break;
                     }
                     msg = tokio::time::timeout(wait_for, read_half.wait()) => match msg {
@@ -783,6 +819,9 @@ impl SshManager {
                         Ok(None) => {
                             flush_pending(&app_handle, &channel_id_clone, &mut pending);
                             let clean = eof_seen || exit_status.is_some();
+                            if let Ok(mut dead) = dead_list.lock() {
+                                dead.push(channel_id_clone.clone());
+                            }
                             emit_pty_closed(
                                 &app_handle,
                                 &channel_id_clone,
@@ -812,6 +851,9 @@ impl SshManager {
                         }
                         Ok(Some(ChannelMsg::Close)) => {
                             flush_pending(&app_handle, &channel_id_clone, &mut pending);
+                            if let Ok(mut dead) = dead_list.lock() {
+                                dead.push(channel_id_clone.clone());
+                            }
                             emit_pty_closed(&app_handle, &channel_id_clone, "normal", exit_status);
                             break;
                         }
@@ -820,17 +862,11 @@ impl SshManager {
                 }
             }
 
-            // If the channel died on its own, queue it for cleanup
-            if !external_close {
-                if let Ok(mut dead) = dead_list.lock() {
-                    dead.push(channel_id_clone.clone());
-                }
-            }
             log::info!("Reader task for {} exited", channel_id_clone);
         });
 
         let entry = ChannelEntry {
-            write: write_half,
+            write: AsyncMutex::new(write_half),
             handle,
             hop_handles,
             close_notify,
@@ -845,9 +881,9 @@ impl SshManager {
 
     pub async fn send_command(&self, channel_id: &str, cmd: &str) -> Result<(), SshError> {
         let entry = self.entry(channel_id)?;
+        let write = entry.write.lock().await;
         // data_bytes waits for SSH window space: backpressure instead of data loss
-        entry
-            .write
+        write
             .data_bytes(cmd.as_bytes().to_vec())
             .await
             .map_err(|e| SshError::ChannelError(format!("Write failed: {}", e)))
@@ -855,8 +891,8 @@ impl SshManager {
 
     pub async fn resize(&self, channel_id: &str, cols: u16, rows: u16) -> Result<(), SshError> {
         let entry = self.entry(channel_id)?;
-        entry
-            .write
+        let write = entry.write.lock().await;
+        write
             .window_change(cols as u32, rows as u32, 0, 0)
             .await
             .map_err(|e| SshError::ChannelError(format!("Resize failed: {}", e)))
@@ -870,8 +906,9 @@ impl SshManager {
 
             // Graceful close, bounded: a dead network must not hang the command
             let _ = tokio::time::timeout(DISCONNECT_TIMEOUT, async {
-                entry.write.eof().await.ok();
-                entry.write.close().await.ok();
+                let write = entry.write.lock().await;
+                write.eof().await.ok();
+                write.close().await.ok();
                 entry
                     .handle
                     .disconnect(Disconnect::ByApplication, "", "en")
@@ -940,6 +977,47 @@ mod tests {
     fn known_hosts_entry_format() {
         assert_eq!(known_hosts_entry("server", 22), "server");
         assert_eq!(known_hosts_entry("server", 2222), "[server]:2222");
+    }
+
+    #[test]
+    fn validate_jump_refs_rejects_deleted_session() {
+        let mut hops: Vec<JumpHop> = serde_json::from_str(
+            r#"[
+                {"host":"bastion"},
+                {"refSessionId":"deleted-session","name":"auth-key-timeout","host":""}
+            ]"#,
+        )
+        .unwrap();
+
+        for host in ["", " \t"] {
+            hops[1].host = host.to_string();
+            let error = validate_jump_refs(&hops).unwrap_err();
+            assert!(matches!(error, SshError::ConnectionFailed(_)));
+            assert_eq!(
+                error.to_string(),
+                "Connection failed: La máquina de salto ya no existe: edita los saltos de esta sesión"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_jump_refs_allows_resolved_session() {
+        let hops: Vec<JumpHop> =
+            serde_json::from_str(r#"[{"refSessionId":"existing-session","host":"bastion"}]"#)
+                .unwrap();
+
+        assert!(validate_jump_refs(&hops).is_ok());
+    }
+
+    #[test]
+    fn validate_jump_refs_allows_manual_hops_and_empty_chain() {
+        let hops: Vec<JumpHop> = serde_json::from_str(
+            r#"[{"host":""},{"refSessionId":"","host":" \t"},{"host":"bastion"}]"#,
+        )
+        .unwrap();
+
+        assert!(validate_jump_refs(&[]).is_ok());
+        assert!(validate_jump_refs(&hops).is_ok());
     }
 
     #[test]

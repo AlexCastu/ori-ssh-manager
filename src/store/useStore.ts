@@ -31,12 +31,22 @@ function readLegacyGroupsFromLocalStorage(): SessionGroup[] {
 // Default settings
 const defaultSettings: AppSettings = {
   terminalTheme: 'nord-dark',
-  appTheme: 'dark',
   terminalFontSize: 'medium',
   cursorStyle: 'block',
   scrollback: 10000,
-  logCommands: true,
+  logCommands: false,
 };
+
+function persistGroup(group: SessionGroup) {
+  invoke('save_group', { group }).catch((error) => {
+    console.error('Failed to persist group:', error);
+    useStore.getState().addToast({
+      type: 'error',
+      title: 'Error',
+      message: 'No se pudo guardar la carpeta',
+    });
+  });
+}
 
 export const useStore = create<AppStore>()(
   persist(
@@ -57,7 +67,6 @@ export const useStore = create<AppStore>()(
       // Terminals
       tabs: [],
       activeTabId: null,
-      tabBuffers: {},
 
       // Settings
       settings: defaultSettings,
@@ -289,12 +298,11 @@ export const useStore = create<AppStore>()(
       id: tabId,
       sessionId,
       title: session?.name || 'New Tab',
-      isActive: true,
       status: 'idle',
     };
 
     set((state) => ({
-      tabs: [...state.tabs.map((t) => ({ ...t, isActive: false })), newTab],
+      tabs: [...state.tabs, newTab],
       activeTabId: tabId,
     }));
 
@@ -302,8 +310,7 @@ export const useStore = create<AppStore>()(
   },
 
   closeTab: async (tabId) => {
-    const { tabs, activeTabId } = get();
-    const tabToClose = tabs.find((t) => t.id === tabId);
+    const tabToClose = get().tabs.find((t) => t.id === tabId);
 
     // Disconnect through sshService so its per-channel state (callbacks,
     // reconnect timers, input buffers) is cleaned up too.
@@ -317,54 +324,33 @@ export const useStore = create<AppStore>()(
       }
     }
 
-    const filtered = tabs.filter((t) => t.id !== tabId);
+    set((state) => {
+      const filtered = state.tabs.filter((t) => t.id !== tabId);
 
-    let newActiveTabId = activeTabId;
-    if (activeTabId === tabId) {
-      newActiveTabId = filtered.length > 0 ? filtered[filtered.length - 1].id : null;
-    }
+      let newActiveTabId = state.activeTabId;
+      if (state.activeTabId === tabId) {
+        newActiveTabId = filtered.length > 0 ? filtered[filtered.length - 1].id : null;
+      }
 
-    set({
-      tabs: filtered.map((t) => ({
-        ...t,
-        isActive: t.id === newActiveTabId,
-      })),
-      activeTabId: newActiveTabId,
-      tabBuffers: Object.fromEntries(
-        Object.entries(get().tabBuffers).filter(([id]) => id !== tabId)
-      ),
+      return {
+        tabs: filtered,
+        activeTabId: newActiveTabId,
+      };
     });
   },
 
   setActiveTab: (tabId) => {
-    set((state) => ({
-      tabs: state.tabs.map((t) => ({ ...t, isActive: t.id === tabId })),
-      activeTabId: tabId,
-    }));
+    set({ activeTabId: tabId });
   },
 
   updateTabStatus: (tabId, status, channelId) => {
     set((state) => ({
       tabs: state.tabs.map((t) =>
-        t.id === tabId ? { ...t, status, channelId: channelId ?? t.channelId } : t
+        t.id === tabId
+          ? { ...t, status, channelId: status === 'connected' ? channelId ?? t.channelId : undefined }
+          : t
       ),
     }));
-  },
-
-  setTabBuffer: (tabId, text) => {
-    set((state) => ({
-      tabBuffers: { ...state.tabBuffers, [tabId]: text },
-    }));
-  },
-
-  appendTabBuffer: (tabId, chunk) => {
-    set((state) => ({
-      tabBuffers: { ...state.tabBuffers, [tabId]: `${state.tabBuffers[tabId] ?? ''}${chunk}` },
-    }));
-  },
-
-  getTabBuffer: (tabId) => {
-    return get().tabBuffers[tabId];
   },
 
   // ==================== UI ====================
@@ -493,9 +479,7 @@ export const useStore = create<AppStore>()(
       order: groups.length,
     };
     set((state) => ({ groups: [...state.groups, group] }));
-    invoke('save_group', { group }).catch((error) =>
-      console.error('Failed to persist group:', error)
-    );
+    persistGroup(group);
     return group.id;
   },
 
@@ -505,9 +489,7 @@ export const useStore = create<AppStore>()(
     }));
     const group = get().groups.find((g) => g.id === id);
     if (group) {
-      invoke('save_group', { group }).catch((error) =>
-        console.error('Failed to persist group:', error)
-      );
+      persistGroup(group);
     }
   },
 
@@ -518,7 +500,9 @@ export const useStore = create<AppStore>()(
     try {
       await invoke('delete_group', { id });
       set((state) => ({
-        groups: state.groups.filter((g) => g.id !== id),
+        groups: state.groups
+          .filter((g) => g.id !== id)
+          .map((g) => g.parentId === id ? { ...g, parentId: group.parentId ?? null } : g),
         sessions: state.sessions.map((s) =>
           s.groupId === id ? { ...s, groupId: null } : s
         ),
@@ -547,9 +531,7 @@ export const useStore = create<AppStore>()(
     }));
     const group = get().groups.find((g) => g.id === id);
     if (group) {
-      invoke('save_group', { group }).catch((error) =>
-        console.error('Failed to persist group:', error)
-      );
+      persistGroup(group);
     }
   },
 
@@ -583,11 +565,7 @@ export const useStore = create<AppStore>()(
       }),
     }));
 
-    changed.forEach((group) =>
-      invoke('save_group', { group }).catch((error) =>
-        console.error('Failed to persist group order:', error)
-      )
-    );
+    changed.forEach(persistGroup);
   },
 
   // ==================== SETTINGS ====================
@@ -599,6 +577,20 @@ export const useStore = create<AppStore>()(
 }),
     {
       name: 'ori-sshmanager-storage',
+      version: 1,
+      migrate: (persistedState, version) => {
+        const state = persistedState as Pick<
+          AppStore,
+          'settings' | 'sidebarCollapsed' | 'sidebarWidth' | 'commandPanelCollapsed' | 'terminalZoom'
+        >;
+        if (version < 1 && state?.settings) {
+          return {
+            ...state,
+            settings: { ...state.settings, logCommands: false },
+          };
+        }
+        return state;
+      },
       // Groups are NOT persisted here anymore: they live in SQLite
       partialize: (state) => ({
         settings: state.settings,

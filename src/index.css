@@ -2,66 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Modern Dark Theme - Professional Grayscale */
 @layer base {
-  :root,
-  :root.dark {
-    --background: 0 0% 7%;
-    --foreground: 0 0% 95%;
-
-    /* Primary Colors - Subtle Blue Accent */
-    --theme-primary: #ffffff;
-    --theme-secondary: #a1a1aa;
-    --theme-accent: #3b82f6;
-    --theme-success: #22c55e;
-    --theme-error: #ef4444;
-    --theme-warning: #f59e0b;
-
-    /* Background tones */
-    --bg-base: #09090b;
-    --bg-elevated: #18181b;
-    --bg-surface: #27272a;
-    --bg-hover: #3f3f46;
-
-    /* Glass effects */
-    --glass-card-bg: rgba(24, 24, 27, 0.8);
-    --glass-sidebar-bg: rgba(9, 9, 11, 0.95);
-    --glass-border: rgba(63, 63, 70, 0.5);
-    --glass-border-light: rgba(63, 63, 70, 0.3);
-    --glass-border-hover: rgba(113, 113, 122, 0.5);
-
-    /* Text colors */
-    --text-primary: #fafafa;
-    --text-secondary: #a1a1aa;
-    --text-muted: #71717a;
-  }
-
-  /* Light theme overrides (ThemeContext sets .light on <html>) */
-  :root.light {
-    --background: 0 0% 98%;
-    --foreground: 240 6% 10%;
-
-    --theme-primary: #18181b;
-    --theme-secondary: #52525b;
-
-    --bg-base: #fafafa;
-    --bg-elevated: #ffffff;
-    --bg-surface: #f4f4f5;
-    --bg-hover: #e4e4e7;
-
-    --glass-card-bg: rgba(255, 255, 255, 0.85);
-    --glass-sidebar-bg: rgba(250, 250, 250, 0.95);
-    --glass-border: rgba(212, 212, 216, 0.8);
-    --glass-border-light: rgba(228, 228, 231, 0.7);
-    --glass-border-hover: rgba(161, 161, 170, 0.6);
-
-    --text-primary: #18181b;
-    --text-secondary: #52525b;
-    --text-muted: #a1a1aa;
+  :root {
+    --superficie: rgba(255, 255, 255, 0.06);
+    --superficie-hover: rgba(255, 255, 255, 0.10);
+    --superficie-fuerte: rgba(255, 255, 255, 0.15);
+    --panel: rgba(22, 8, 40, 0.45);
+    --modal: rgba(38, 14, 62, 0.88);
+    --hundido: rgba(0, 0, 0, 0.22);
+    --borde: rgba(255, 255, 255, 0.10);
+    --borde-fuerte: rgba(255, 255, 255, 0.18);
+    --texto: rgba(255, 255, 255, 0.96);
+    --texto-suave: rgba(255, 255, 255, 0.68);
+    --texto-tenue: rgba(255, 255, 255, 0.45);
+    --acento: #ff4fa3;
+    --acento-2: #a855f7;
+    --peligro: #ff5c7a;
+    --exito: #34d399;
+    --aviso: #fbbf24;
   }
 
   * {
-    border-color: var(--glass-border-light);
+    border-color: var(--borde);
   }
 
   html, body, #root {
@@ -71,8 +33,10 @@
 
   body {
     @apply antialiased;
-    color: var(--text-primary);
-    background: var(--bg-base);
+    color: var(--texto);
+    background: #2b1055;
+    color-scheme: dark;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
     margin: 0;
   }
@@ -88,121 +52,59 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #3f3f46;
+    background: var(--borde-fuerte);
     border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #52525b;
-  }
-
-  :root.light ::-webkit-scrollbar-thumb {
-    background: #d4d4d8;
-  }
-
-  :root.light ::-webkit-scrollbar-thumb:hover {
-    background: #a1a1aa;
+    background: var(--texto-tenue);
   }
 
   ::selection {
-    background: rgba(59, 130, 246, 0.3);
+    background: rgba(255, 79, 163, 0.3);
   }
 }
 
-/* Glass morphism components */
 @layer components {
-  .glass-card {
-    background: var(--glass-card-bg);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--glass-border);
-    @apply rounded-xl;
+  .btn-primario {
+    @apply rounded-full px-5 py-2 font-medium text-texto transition disabled:opacity-50;
+    background: linear-gradient(135deg, var(--acento), var(--acento-2));
+    box-shadow: 0 8px 24px rgba(255, 79, 163, 0.35);
   }
 
-  .glass-sidebar {
-    background: var(--glass-sidebar-bg);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border-right: 1px solid var(--glass-border-light);
+  .btn-primario:hover:not(:disabled) {
+    filter: brightness(1.1);
   }
 
-  .glass-modal {
-    background: var(--glass-card-bg);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid var(--glass-border);
-    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
-    @apply rounded-2xl;
+  .btn-secundario {
+    @apply rounded-full px-5 py-2 bg-superficie border border-borde text-texto transition-colors hover:bg-superficie-hover;
   }
 
-  /* Primary Button */
-  .btn-primary {
-    @apply px-4 py-2.5 text-white font-medium rounded-xl transition-all duration-200;
-    background: linear-gradient(135deg, #3b82f6, #2563eb);
-    border: 1px solid rgba(59, 130, 246, 0.3);
+  .btn-icono {
+    @apply p-1.5 rounded-lg text-texto-suave transition-colors hover:bg-superficie-hover hover:text-texto;
   }
 
-  .btn-primary:hover {
-    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3);
-    transform: translateY(-1px);
+  .campo {
+    @apply w-full rounded-xl bg-hundido border border-borde px-3 py-2 text-sm text-texto placeholder:text-texto-tenue;
+    @apply focus:outline-none focus:border-acento focus:ring-2;
+    --tw-ring-color: rgba(255, 79, 163, 0.3);
   }
 
-  /* Secondary Button */
-  .btn-secondary {
-    @apply px-4 py-2 font-medium rounded-xl transition-all duration-200;
-    background: var(--bg-elevated);
-    border: 1px solid var(--glass-border);
-    color: var(--text-secondary);
+  .tarjeta {
+    @apply rounded-2xl bg-superficie border border-borde;
   }
 
-  .btn-secondary:hover {
-    background: var(--bg-surface);
-    border-color: var(--glass-border-hover);
-    color: var(--text-primary);
+  .modal-cristal {
+    @apply rounded-3xl bg-modal border border-borde-fuerte backdrop-blur-2xl;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
   }
 
-  /* Input fields */
-  .input-base {
-    @apply w-full px-4 py-2.5 rounded-xl transition-all duration-200;
-    color: var(--text-primary);
-    background: var(--bg-elevated);
-    border: 1px solid var(--glass-border-light);
+  .fila {
+    @apply rounded-xl px-2.5 py-1.5 hover:bg-superficie-hover;
   }
 
-  .input-base::placeholder {
-    color: var(--text-muted);
-  }
-
-  .input-base:focus {
-    outline: none;
-    border-color: rgba(59, 130, 246, 0.5);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-  }
-
-  /* Text utilities */
-  .text-theme-primary {
-    color: var(--text-primary);
-  }
-
-  .text-theme-secondary {
-    color: var(--text-secondary);
-  }
-
-  .text-theme-muted {
-    color: var(--text-muted);
-  }
-
-  /* Background utilities */
-  .bg-theme-base {
-    background: var(--bg-base);
-  }
-
-  .bg-theme-elevated {
-    background: var(--bg-elevated);
-  }
-
-  .bg-theme-surface {
-    background: var(--bg-surface);
+  .fila[aria-selected="true"] {
+    @apply bg-superficie-fuerte;
   }
 }
 
@@ -223,30 +125,13 @@
     }
   }
 
-  /* Main app background - clean gradient, theme-aware */
+  /* Main app background */
   .gradient-mesh {
-    background: linear-gradient(180deg, #fafafa 0%, #f4f4f5 50%, #fafafa 100%);
+    background:
+      radial-gradient(ellipse at 100% 0%, rgba(255, 79, 163, 0.18) 0%, transparent 60%),
+      radial-gradient(ellipse at 0% 100%, rgba(124, 58, 237, 0.25) 0%, transparent 60%),
+      linear-gradient(135deg, #2b1055 0%, #4a1460 50%, #7a1f5c 100%);
     position: relative;
-  }
-
-  :root.dark .gradient-mesh {
-    background: linear-gradient(180deg, #09090b 0%, #0a0a0c 50%, #09090b 100%);
-  }
-
-  .gradient-mesh::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 50%;
-    height: 50%;
-    background: radial-gradient(ellipse at 100% 0%, rgba(59, 130, 246, 0.03) 0%, transparent 60%);
-    pointer-events: none;
-  }
-
-  /* Subtle glow */
-  .glow-blue {
-    box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
   }
 
   /* Hide scrollbar */
@@ -259,14 +144,6 @@
     display: none;
   }
 
-  /* Drag region styles */
-  .titlebar-drag {
-    -webkit-app-region: drag;
-  }
-
-  .titlebar-no-drag {
-    -webkit-app-region: no-drag;
-  }
 }
 
 /* ==================== React Flow (session map) ==================== */
@@ -282,30 +159,20 @@
 .react-flow__controls-button {
   width: 28px;
   height: 28px;
-  background: #ffffff;
+  background: var(--superficie);
   border: none;
-  border-bottom: 1px solid #e4e4e7;
-  color: #3f3f46;
+  border-bottom: 1px solid var(--borde);
+  color: var(--texto);
 }
 
 .react-flow__controls-button:hover {
-  background: #f4f4f5;
+  background: var(--superficie-hover);
 }
 
 .react-flow__controls-button svg {
   fill: currentColor;
   max-width: 14px;
   max-height: 14px;
-}
-
-.dark .react-flow__controls-button {
-  background: #27272a;
-  border-bottom: 1px solid rgb(255 255 255 / 0.08);
-  color: #e4e4e7;
-}
-
-.dark .react-flow__controls-button:hover {
-  background: #3f3f46;
 }
 
 /* The map canvas inherits the surrounding surface instead of a hard white */

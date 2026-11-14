@@ -286,10 +286,6 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     return extractLastBlock(lines);
   }, []);
 
-  const scrollToBottom = useCallback(() => {
-    terminalRef.current?.scrollToBottom();
-  }, []);
-
   /// Apply the current options (theme, font size, cursor, scrollback) to the
   /// live terminal without recreating it. PTY resize is handled by onResize.
   const applyOptions = useCallback(() => {
@@ -327,7 +323,6 @@ export function useTerminal(options: UseTerminalOptions = {}) {
     getSize,
     getBufferText,
     getLastBlock,
-    scrollToBottom,
     applyOptions,
     findNext,
     findPrevious,

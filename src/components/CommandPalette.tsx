@@ -100,6 +100,7 @@ function CommandPaletteBody() {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
+        transition={{ duration: 0.18 }}
         onClick={close}
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
       />
@@ -107,11 +108,12 @@ function CommandPaletteBody() {
       <motion.div
         initial={{ opacity: 0, scale: 0.97, y: -8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-zinc-200 dark:border-white/10 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl shadow-2xl"
+        transition={{ duration: 0.18 }}
+        className="modal-cristal relative w-full max-w-xl overflow-hidden"
       >
         {/* Input */}
-        <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-white/5 px-4">
-          <Search className="h-4 w-4 text-zinc-400" />
+        <div className="flex items-center gap-3 border-b border-borde px-4">
+          <Search className="h-4 w-4 text-texto-tenue" />
           <input
             ref={inputRef}
             value={query}
@@ -121,17 +123,17 @@ function CommandPaletteBody() {
             }}
             onKeyDown={onKeyDown}
             placeholder="Buscar sesión y conectar…"
-            className="flex-1 bg-transparent py-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none"
+            className="min-w-0 flex-1 bg-transparent py-4 text-base text-texto placeholder:text-texto-tenue focus:outline-none"
           />
-          <kbd className="rounded bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500">
+          <kbd className="rounded-lg bg-superficie px-1.5 py-0.5 text-[10px] text-texto-tenue">
             ESC
           </kbd>
         </div>
 
         {/* Results */}
-        <div ref={listRef} className="max-h-[50vh] overflow-y-auto py-1">
+        <div ref={listRef} className="max-h-[50vh] overflow-y-auto p-2">
           {results.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-zinc-400">
+            <div className="px-4 py-6 text-center text-sm text-texto-tenue">
               Sin coincidencias
             </div>
           ) : (
@@ -145,16 +147,16 @@ function CommandPaletteBody() {
                   data-idx={i}
                   onMouseMove={() => setSelected(i)}
                   onClick={() => connect(s)}
-                  className={`flex w-full items-center gap-3 px-4 py-2 text-left ${
-                    isActive ? 'bg-cyan-500/10' : ''
+                  className={`fila flex w-full items-center gap-3 text-left ${
+                    isActive ? 'bg-superficie-fuerte hover:bg-superficie-fuerte' : ''
                   }`}
                 >
                   <span className={`h-2 w-2 shrink-0 rounded-full ${colors.dot}`} />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm text-zinc-800 dark:text-zinc-100">
+                    <div className="truncate text-sm text-texto">
                       {s.name}
                     </div>
-                    <div className="flex items-center gap-1.5 truncate text-xs text-zinc-500">
+                    <div className="flex items-center gap-1.5 truncate text-xs text-texto-tenue">
                       {folder && (
                         <>
                           <Folder className="h-3 w-3" />
@@ -168,7 +170,7 @@ function CommandPaletteBody() {
                     </div>
                   </div>
                   {isActive && (
-                    <span className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-400">
+                    <span className="flex shrink-0 items-center gap-1 text-[11px] text-acento">
                       <CornerDownLeft className="h-3 w-3" /> conectar
                     </span>
                   )}
@@ -179,7 +181,7 @@ function CommandPaletteBody() {
         </div>
 
         {/* Footer hint */}
-        <div className="flex items-center gap-3 border-t border-zinc-200 dark:border-white/5 px-4 py-2 text-[11px] text-zinc-400">
+        <div className="flex items-center gap-3 border-t border-borde px-4 py-2 text-[11px] text-texto-tenue">
           <span>↑↓ navegar</span>
           <span>⏎ conectar</span>
           <span className="ml-auto">⌘K / Ctrl+K para abrir</span>

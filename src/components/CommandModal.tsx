@@ -5,13 +5,12 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../store/useStore';
 
 export function CommandModal() {
-  const { commandModal, closeCommandModal, addCommand, updateCommand, activeSessionId } = useStore(
+  const { commandModal, closeCommandModal, addCommand, updateCommand } = useStore(
     useShallow((s) => ({
       commandModal: s.commandModal,
       closeCommandModal: s.closeCommandModal,
       addCommand: s.addCommand,
       updateCommand: s.updateCommand,
-      activeSessionId: s.activeSessionId,
     }))
   );
 
@@ -22,6 +21,7 @@ export function CommandModal() {
   const [isLoading, setIsLoading] = useState(false);
 
   const editingCommand = commandModal.data?.mode === 'edit' ? commandModal.data.command : undefined;
+  const sessionId = editingCommand?.sessionId ?? commandModal.data?.sessionId;
   const isEdit = Boolean(editingCommand);
 
   // Re-sync form state on every open: populate when editing, reset when creating
@@ -43,9 +43,7 @@ export function CommandModal() {
       name: name.trim(),
       command: command.trim(),
       notes: notes.trim() || null,
-      sessionId: isGlobal
-        ? undefined
-        : editingCommand?.sessionId ?? activeSessionId ?? undefined,
+      sessionId: isGlobal ? undefined : sessionId,
     };
 
     setIsLoading(true);
@@ -147,7 +145,8 @@ export function CommandModal() {
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
-                checked={isGlobal}
+                checked={isGlobal || !sessionId}
+                disabled={!sessionId}
                 onChange={(e) => setIsGlobal(e.target.checked)}
                 className="w-4 h-4 rounded border-zinc-300 dark:border-white/20 bg-zinc-100 dark:bg-zinc-800 text-purple-500 focus:ring-purple-500/50"
               />
