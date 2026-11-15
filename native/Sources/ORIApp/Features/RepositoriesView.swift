@@ -554,8 +554,8 @@ struct BotonApp: View {
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o600], ofItemAtPath: target.path)
         }
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.arguments = ["--new-window", target.path]
-        NSWorkspace.shared.openApplication(at: application, configuration: configuration)
+        // Se pasa como documento: con VS Code ya abierto, openApplication ignora los argumentos
+        NSWorkspace.shared.open(
+            [target], withApplicationAt: application, configuration: NSWorkspace.OpenConfiguration())
     }
 }
