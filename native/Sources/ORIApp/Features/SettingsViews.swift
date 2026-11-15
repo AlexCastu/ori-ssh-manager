@@ -224,10 +224,6 @@ struct DiagnosticsView: View {
                     StatusBadge(state: vpn.state.rawValue)
                 }
             }
-            if IvantiVPN.instalado {
-                Divider()
-                PanelIvanti()
-            }
         }
     }
     private var tarjetaSSH: some View {

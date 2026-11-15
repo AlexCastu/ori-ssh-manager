@@ -13,6 +13,5 @@
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
-<key>NSAppleEventsUsageDescription</key><string>ORI controla Ivanti Secure Access (conectar y desconectar la VPN) desde Diagnósticos.</string>
 <key>NSHumanReadableCopyright</key><string>© 2026 ORI</string>
 </dict></plist>

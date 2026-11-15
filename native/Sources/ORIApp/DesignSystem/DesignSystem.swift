@@ -67,8 +67,7 @@ enum Theme {
     static func stateColor(_ state: String) -> Color {
         switch state {
         case "connected", "active", "confirmed": success
-        case "connecting", "authenticating", "starting", "reconnecting", "inferred", "suspended":
-            warning
+        case "connecting", "authenticating", "starting", "reconnecting", "inferred": warning
         case "failed", "degraded": error
         default: secondary
         }
@@ -79,7 +78,6 @@ enum Theme {
         case "connecting": "Conectando"
         case "authenticating": "Autenticando"
         case "connected": "Conectado"
-        case "suspended": "Suspendida"
         case "reconnecting": "Reconectando"
         case "disconnecting": "Desconectando"
         case "failed": "Error"

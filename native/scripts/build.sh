@@ -25,5 +25,5 @@ cp "$NATIVE_DIR/icon.icns" "$APP_DIR/Contents/Resources/icon.icns"
 for resource in "$BIN_DIR"/*.bundle; do
     if test -d "$resource"; then cp -R "$resource" "$APP_DIR/Contents/Resources/"; fi
 done
-codesign --force --sign "${ORI_SIGN_IDENTITY:--}" --options runtime --entitlements "$NATIVE_DIR/ORI.entitlements" "$APP_DIR"
+codesign --force --sign "${ORI_SIGN_IDENTITY:--}" --options runtime "$APP_DIR"
 echo "Aplicación: $APP_DIR"

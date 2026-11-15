@@ -161,10 +161,6 @@ struct DashboardView: View {
                     .font(.system(size: 15))
                     .onSubmit { if let primero = coincidencias.first { conectar(primero) } }
                 if !query.isEmpty { resultados }
-                if IvantiVPN.instalado {
-                    encabezado("VPN")
-                    Card { PanelIvanti() }
-                }
                 encabezado("Abierto ahora")
                 abiertoAhora
                 if !app.scriptsFavoritos.isEmpty {
