@@ -262,3 +262,15 @@ struct TerminalTests {
     }
 
 }
+
+// El texto de estado de Ivanti decide qué botones salen en Inicio
+@Test func estadoIvantiDecideLasAcciones() {
+    func conexion(_ estado: String) -> ConexionIvanti {
+        ConexionIvanti(id: "0", nombre: "VPN", estado: estado, url: "https://vpn.test")
+    }
+    #expect(conexion("Connected").acciones.map(\.orden) == ["SUSPEND", "DISCONNECT"])
+    #expect(conexion("Desconectado").estadoNormalizado == "disconnected")
+    #expect(conexion("Disconnected").acciones.map(\.orden) == ["CONNECT"])
+    #expect(conexion("Suspended").acciones.map(\.orden) == ["RESUME", "DISCONNECT"])
+    #expect(conexion("Conectando").estadoNormalizado == "connecting")
+}

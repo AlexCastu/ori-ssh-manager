@@ -106,6 +106,29 @@ public enum ConnectionOrganizer {
         configuration = candidate
     }
 
+    // Coloca la carpeta justo delante de otra, en el mismo nivel que ella
+    public static func moveGroup(
+        _ id: String, before targetID: String, in configuration: inout Configuration
+    ) throws {
+        guard id != targetID else { return }
+        guard let index = configuration.groups.firstIndex(where: { $0.id == id }),
+            let target = configuration.groups.first(where: { $0.id == targetID })
+        else { throw ORIError.invalid("La carpeta ya no existe.") }
+        var candidate = configuration
+        candidate.groups[index].parentID = target.parentID
+        var peers = candidate.groups.filter { $0.parentID == target.parentID && $0.id != id }
+            .sorted { ($0.order, $0.name) < ($1.order, $1.name) }.map(\.id)
+        peers.insert(id, at: peers.firstIndex(of: targetID) ?? peers.endIndex)
+        for (order, peer) in peers.enumerated() {
+            if let i = candidate.groups.firstIndex(where: { $0.id == peer }) {
+                candidate.groups[i].order = order
+            }
+        }
+        // Valida también que no se meta dentro de sí misma
+        try Validation.configuration(candidate)
+        configuration = candidate
+    }
+
     public static func moveHost(
         _ id: String, to groupID: String?, before targetID: String? = nil,
         in configuration: inout Configuration

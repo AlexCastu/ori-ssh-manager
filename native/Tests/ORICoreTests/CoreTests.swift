@@ -189,7 +189,7 @@ struct ArgumentTests {
         #expect(parser.ingest("debug1: Connecting to test\n").isEmpty)
         #expect(
             parser.ingest("Authenticated to test ([127.0.0.1]:22) using \"publickey\".\n") == [
-                .authenticated
+                .authenticated, .destino("IP 127.0.0.1 · método publickey"),
             ])
         #expect(parser.ingest("debug1: Entering inter").isEmpty)
         #expect(parser.ingest("active session.\n") == [.transportReady])
@@ -202,6 +202,17 @@ struct ArgumentTests {
         #expect(parser.ingest("Authenticated to test using publickey.\r").isEmpty)
         #expect(parser.ingest("\n") == [.authenticated])
         #expect(parser.ingest("debug2: channel 0: read failed: Broken pipe\r\n").isEmpty)
+    }
+    @Test func parserResumeDestinoRealDeLaConexion() {
+        var parser = SSHLogParser()
+        #expect(
+            parser.ingest("debug1: Authenticating to db.prod:2222 as 'deploy'\n") == [
+                .authenticating
+            ])
+        #expect(
+            parser.ingest("Authenticated to db.prod (via proxy) using \"password\".\n") == [
+                .authenticated, .destino("deploy@db.prod:2222 · método password"),
+            ])
     }
     @Test func permanentErrorsNeverRetry() {
         for text in [

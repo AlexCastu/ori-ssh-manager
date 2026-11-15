@@ -282,6 +282,8 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var selectedWorkspaceID: String? = nil
     public var scriptsFolder: String? = nil
     public var scriptFavorites: [String]? = nil
+    // Orden de Conexiones: nil = manual (arrastrar), "nombre" o "favoritos"
+    public var ordenConexiones: String? = nil
     public init() {}
 }
 public struct AuditEvent: Codable, Identifiable, Sendable, Equatable {

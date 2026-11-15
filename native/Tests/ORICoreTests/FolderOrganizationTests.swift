@@ -84,4 +84,26 @@ struct FolderOrganizationTests {
         }
         #expect(configuration == before)
     }
+
+    @Test func moverCarpetaDelanteDeOtraReordenaYNoPermiteCiclos() throws {
+        var configuration = Configuration()
+        let a = folder("A")
+        let b = folder("B")
+        let hija = folder("Hija")
+        try ConnectionOrganizer.createGroup(a, in: &configuration)
+        try ConnectionOrganizer.createGroup(b, in: &configuration)
+        try ConnectionOrganizer.createGroup(
+            hija, relativeTo: a.id, placement: .child, in: &configuration)
+        // La hija sale de A y queda la primera de la raíz
+        try ConnectionOrganizer.moveGroup(hija.id, before: a.id, in: &configuration)
+        let raiz = configuration.groups.filter { $0.parentID == nil }.sorted { $0.order < $1.order }
+        #expect(raiz.map(\.name) == ["Hija", "A", "B"])
+        // A no puede ir delante de algo que está dentro de ella
+        try ConnectionOrganizer.createGroup(
+            folder("Nieta"), relativeTo: b.id, placement: .child, in: &configuration)
+        let nieta = configuration.groups.first { $0.name == "Nieta" }!
+        #expect(throws: (any Error).self) {
+            try ConnectionOrganizer.moveGroup(b.id, before: nieta.id, in: &configuration)
+        }
+    }
 }

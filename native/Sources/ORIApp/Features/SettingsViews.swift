@@ -185,6 +185,9 @@ struct DiagnosticsView: View {
                             Text(event.createdAt.formatted(date: .abbreviated, time: .standard))
                                 .font(.caption).foregroundStyle(Theme.secondary).frame(
                                     width: 170, alignment: .leading)
+                            Text(event.hostID.flatMap { app.configuration.host($0)?.name } ?? "—")
+                                .font(.callout.weight(.medium)).lineLimit(1)
+                                .frame(width: 160, alignment: .leading)
                             Text(event.message).font(
                                 event.kind == "command" ? Theme.monospaced : .callout
                             ).textSelection(.enabled)
@@ -220,6 +223,10 @@ struct DiagnosticsView: View {
                     Spacer()
                     StatusBadge(state: vpn.state.rawValue)
                 }
+            }
+            if IvantiVPN.instalado {
+                Divider()
+                PanelIvanti()
             }
         }
     }

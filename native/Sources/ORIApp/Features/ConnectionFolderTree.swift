@@ -1,6 +1,13 @@
 import ORICore
 import SwiftUI
 
+// Carpetas de un nivel: por nombre si así se eligió en Conexiones, si no en el orden manual
+private func ordenarCarpetas(_ grupos: [HostGroup], _ settings: AppSettings) -> [HostGroup] {
+    settings.ordenConexiones == "nombre"
+        ? grupos.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        : grupos.sorted { ($0.order, $0.name) < ($1.order, $1.name) }
+}
+
 private struct FolderEditRequest: Identifiable {
     let id = UUID()
     var draft: HostGroup
@@ -15,9 +22,8 @@ struct ConnectionFolderTree: View {
     @Environment(\.sectionPalette) private var palette
     @State private var editing: FolderEditRequest?
     private var roots: [HostGroup] {
-        app.configuration.groups.filter { $0.parentID == nil }.sorted {
-            ($0.order, $0.name) < ($1.order, $1.name)
-        }
+        ordenarCarpetas(
+            app.configuration.groups.filter { $0.parentID == nil }, app.configuration.settings)
     }
     var body: some View {
         ScrollView {
@@ -95,6 +101,7 @@ private struct FolderBranch: View {
     @Environment(\.sectionPalette) private var palette
     @State private var expanded: Bool
     @State private var targeted = false
+    @State private var lineaActiva = false
     init(
         app: AppContainer, group: HostGroup, selection: String,
         selectGroup: @escaping (String) -> Void,
@@ -108,16 +115,23 @@ private struct FolderBranch: View {
         _expanded = State(initialValue: group.expanded)
     }
     private var children: [HostGroup] {
-        app.configuration.groups.filter { $0.parentID == group.id }.sorted {
-            ($0.order, $0.name) < ($1.order, $1.name)
-        }
+        ordenarCarpetas(
+            app.configuration.groups.filter { $0.parentID == group.id }, app.configuration.settings)
     }
     private var count: Int {
         let ids = ConnectionOrganizer.descendantGroupIDs(of: group.id, in: app.configuration)
         return app.connectionHosts.filter { $0.groupID.map(ids.contains) ?? false }.count
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Franja encima de la carpeta: soltar otra aquí la coloca delante, al mismo nivel
+            Rectangle().fill(.clear).frame(height: 6).contentShape(Rectangle())
+                .overlay(Capsule().fill(lineaActiva ? palette.accent : .clear).frame(height: 2))
+                .dropDestination(for: String.self) { items, _ in
+                    recolocar(items)
+                } isTargeted: {
+                    lineaActiva = $0
+                }
             HStack(spacing: 0) {
                 if !children.isEmpty {
                     Button {
@@ -192,6 +206,22 @@ private struct FolderBranch: View {
             }
         }
         .onChange(of: group.expanded) { _, value in expanded = value }
+    }
+    private func recolocar(_ items: [String]) -> Bool {
+        guard items.count == 1, let item = items.first, item.hasPrefix("ori-group:") else {
+            return false
+        }
+        let movida = String(item.dropFirst(10))
+        let destino = group.id
+        Task {
+            do {
+                try await app.save { c in
+                    try ConnectionOrganizer.moveGroup(movida, before: destino, in: &c)
+                    if c.settings.ordenConexiones == "nombre" { c.settings.ordenConexiones = nil }
+                }
+            } catch { app.report(error) }
+        }
+        return true
     }
     private func receive(_ items: [String]) -> Bool {
         guard items.count == 1, let item = items.first else { return false }

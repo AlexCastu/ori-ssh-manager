@@ -126,9 +126,13 @@ public enum SSHProgress: Sendable, Equatable {
     case authenticating, authenticated, sessionReady, transportReady, localForwardReady,
         remoteForwardReady
     case failure(ConnectionDiagnostic)
+    // Dónde y cómo ha entrado OpenSSH: "usuario@host:puerto · IP … · método …"
+    case destino(String)
 }
 public struct SSHLogParser: Sendable {
     private var pending = ""
+    private var usuario: String?
+    private var servidor: String?
     public init() {}
     public mutating func ingest(_ text: String) -> [SSHProgress] {
         pending += text
@@ -144,7 +148,18 @@ public struct SSHLogParser: Sendable {
             {
                 events.append(.authenticating)
             }
-            if line.hasPrefix("Authenticated to ") { events.append(.authenticated) }
+            // "debug1: Authenticating to host:22 as 'user'": destino ya resuelto con ~/.ssh/config
+            if let rango = line.range(of: "Authenticating to "),
+                let como = line.range(of: " as '", range: rango.upperBound..<line.endIndex)
+            {
+                servidor = String(line[rango.upperBound..<como.lowerBound])
+                usuario = String(line[como.upperBound...]).trimmingCharacters(in: ["'"])
+            }
+            if line.hasPrefix("Authenticated to ") {
+                events.append(.authenticated)
+                let resumen = resumenDestino(line)
+                if !resumen.isEmpty { events.append(.destino(resumen)) }
+            }
             if line.contains("Entering interactive session.") { events.append(.transportReady) }
             if line.contains("shell request accepted on channel ") { events.append(.sessionReady) }
             if line.contains("Local forwarding listening on ") { events.append(.localForwardReady) }
@@ -165,6 +180,20 @@ public struct SSHLogParser: Sendable {
         }
         if pending.utf8.count > 32768 { pending = String(pending.suffix(4096)) }
         return events
+    }
+    // "Authenticated to host ([10.0.0.5]:22) using "publickey"." aporta la IP y el método
+    private func resumenDestino(_ linea: String) -> String {
+        var partes: [String] = []
+        if let usuario, let servidor { partes.append("\(usuario)@\(servidor)") }
+        if let ip = Self.entre(linea, "([", "]") { partes.append("IP \(ip)") }
+        if let metodo = Self.entre(linea, "using \"", "\"") { partes.append("método \(metodo)") }
+        return partes.joined(separator: " · ")
+    }
+    private static func entre(_ texto: String, _ inicio: String, _ fin: String) -> String? {
+        guard let a = texto.range(of: inicio),
+            let b = texto.range(of: fin, range: a.upperBound..<texto.endIndex)
+        else { return nil }
+        return String(texto[a.upperBound..<b.lowerBound])
     }
 }
 

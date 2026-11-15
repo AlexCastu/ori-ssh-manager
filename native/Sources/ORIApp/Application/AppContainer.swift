@@ -30,7 +30,17 @@ final class AppContainer {
             }
         }
     }
+    // Filtros y vista de Conexiones: viven aquí para no perderse al cambiar de sección
+    struct FiltroConexiones {
+        var query = ""
+        var groupID = ""
+        var tag = ""
+        var favoritesOnly = false
+        var viewMode = "rows"
+        var selectedHostID = ""
+    }
     var section: Section = .dashboard
+    var conexiones = FiltroConexiones()
     var configuration = Configuration()
     var initialized = false
     var startupError: String?

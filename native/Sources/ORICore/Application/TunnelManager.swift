@@ -159,7 +159,7 @@ public actor TunnelManager {
                 case .localForwardReady: if run.profile.kind != .remote { run.sawListener = true }
                 case .remoteForwardReady: if run.profile.kind == .remote { run.sawListener = true }
                 case .failure(let diagnostic): run.instance.lastError = diagnostic
-                case .authenticating, .sessionReady: break
+                case .authenticating, .sessionReady, .destino: break
                 }
             }
             if run.instance.authenticated && run.sawListener && run.sawReady

@@ -67,7 +67,8 @@ enum Theme {
     static func stateColor(_ state: String) -> Color {
         switch state {
         case "connected", "active", "confirmed": success
-        case "connecting", "authenticating", "starting", "reconnecting", "inferred": warning
+        case "connecting", "authenticating", "starting", "reconnecting", "inferred", "suspended":
+            warning
         case "failed", "degraded": error
         default: secondary
         }
@@ -78,6 +79,7 @@ enum Theme {
         case "connecting": "Conectando"
         case "authenticating": "Autenticando"
         case "connected": "Conectado"
+        case "suspended": "Suspendida"
         case "reconnecting": "Reconectando"
         case "disconnecting": "Desconectando"
         case "failed": "Error"
@@ -142,6 +144,16 @@ struct FondoSeccion: View {
                 palette.sombra, palette.inicio, palette.fin,
             ]
         ).ignoresSafeArea()
+    }
+}
+
+// Línea vertical que se desvanece arriba y abajo
+struct LineaDivisoria: View {
+    var body: some View {
+        LinearGradient(
+            colors: [.white.opacity(0.02), .white.opacity(0.14), .white.opacity(0.02)],
+            startPoint: .top, endPoint: .bottom
+        ).frame(width: 1).ignoresSafeArea()
     }
 }
 
@@ -257,12 +269,105 @@ private struct CapsulaControl: ViewModifier {
 struct CampoTexto: View {
     let ayuda: String
     @Binding var texto: String
+    var secreto = false
     var body: some View {
         ZStack(alignment: .leading) {
             if texto.isEmpty {
                 Text(ayuda).foregroundStyle(Theme.secondary).accessibilityHidden(true)
             }
-            TextField(ayuda, text: $texto, prompt: Text("")).textFieldStyle(.plain)
+            if secreto {
+                SecureField(ayuda, text: $texto, prompt: Text("")).textFieldStyle(.plain)
+            } else {
+                TextField(ayuda, text: $texto, prompt: Text("")).textFieldStyle(.plain)
+            }
+        }
+    }
+}
+// Campo de formulario: título pequeño encima y caja redondeada de vidrio
+struct CampoFormulario<Contenido: View>: View {
+    @Environment(\.sectionPalette) private var palette
+    let titulo: String
+    var caja = true
+    @ViewBuilder var contenido: Contenido
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(titulo.uppercased()).font(.system(size: 10, weight: .semibold)).tracking(0.8)
+                .foregroundStyle(Theme.secondary)
+            if caja {
+                contenido.padding(.horizontal, 12).padding(.vertical, 9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(palette.elevated.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10).stroke(palette.border.opacity(0.6)))
+            } else {
+                contenido
+            }
+        }
+    }
+}
+// Rejilla de iconos ya dibujados, pintados con el color del perfil
+struct SelectorIcono: View {
+    @Environment(\.sectionPalette) private var palette
+    @Binding var icono: String
+    let color: Color
+    static let ICONOS = [
+        "server.rack", "terminal", "externaldrive", "internaldrive", "cpu", "memorychip",
+        "shippingbox", "shippingbox.fill", "square.3.layers.3d", "cloud", "globe", "network",
+        "wifi.router", "antenna.radiowaves.left.and.right", "lock.shield", "key", "display",
+        "chevron.left.forwardslash.chevron.right", "arrow.triangle.branch", "envelope",
+        "gauge.with.dots.needle.33percent", "building.2", "flask", "hammer",
+    ]
+    // Si el perfil trae un icono fuera de la lista, se muestra el primero
+    private var opciones: [String] {
+        let actual = Theme.profileIcon(icono)
+        return Self.ICONOS.contains(actual) ? Self.ICONOS : [actual] + Self.ICONOS
+    }
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 40), spacing: 8)], spacing: 8) {
+            ForEach(opciones, id: \.self) { simbolo in
+                let elegido = Theme.profileIcon(icono) == simbolo
+                Button {
+                    icono = simbolo
+                } label: {
+                    Image(systemName: simbolo).font(.system(size: 15))
+                        .foregroundStyle(elegido ? color : Theme.text)
+                        .frame(width: 40, height: 40)
+                        .background(
+                            elegido ? color.opacity(0.2) : palette.elevated.opacity(0.45),
+                            in: RoundedRectangle(cornerRadius: 10)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10).stroke(
+                                elegido ? color : palette.border.opacity(0.5),
+                                lineWidth: elegido ? 1.5 : 1))
+                        .contentShape(Rectangle())
+                }.buttonStyle(.plain).pointerStyle(.link).help(simbolo)
+                    .accessibilityLabel(simbolo).accessibilityAddTraits(elegido ? .isSelected : [])
+            }
+        }
+    }
+}
+// Muestras de color redondas; la elegida lleva aro blanco
+struct SelectorColor: View {
+    @Binding var color: String
+    static let COLORES = [
+        ("blue", "Azul"), ("cyan", "Cian"), ("green", "Verde"), ("yellow", "Amarillo"),
+        ("orange", "Naranja"), ("red", "Rojo"), ("pink", "Rosa"), ("purple", "Morado"),
+    ]
+    var body: some View {
+        HStack(spacing: 12) {
+            ForEach(Self.COLORES, id: \.0) { nombre, etiqueta in
+                Button {
+                    color = nombre
+                } label: {
+                    Circle().fill(Theme.profileColor(nombre)).frame(width: 24, height: 24)
+                        .padding(4)
+                        .overlay(Circle().stroke(.white, lineWidth: color == nombre ? 2 : 0))
+                        .contentShape(Circle())
+                }.buttonStyle(.plain).pointerStyle(.link).help(etiqueta)
+                    .accessibilityLabel(etiqueta)
+                    .accessibilityAddTraits(color == nombre ? .isSelected : [])
+            }
         }
     }
 }

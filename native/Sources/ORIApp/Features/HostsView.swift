@@ -5,25 +5,26 @@ import SwiftUI
 struct HostsView: View {
     @Bindable var app: AppContainer
     @Environment(\.sectionPalette) private var palette
-    @State private var query = ""
-    @State private var groupID = ""
-    @State private var tag = ""
-    @State private var favoritesOnly = false
     @State private var groupsOpen = false
-    @State private var viewMode = "rows"
-    @State private var selectedHostID = ""
     private var filtered: [HostProfile] {
         app.connectionHosts.filter { host in
-            (!favoritesOnly || host.favorite)
+            (!app.conexiones.favoritesOnly || host.favorite)
                 && belongsToSelectedGroup(host)
-                && (tag.isEmpty || host.tags.contains(tag))
-                && (query.isEmpty
+                && (app.conexiones.tag.isEmpty || host.tags.contains(app.conexiones.tag))
+                && (app.conexiones.query.isEmpty
                     || (host.name + " " + host.address + " " + host.username + " "
-                        + host.tags.joined(separator: " ")).localizedCaseInsensitiveContains(query))
-        }.sorted {
-            let order = app.configuration.organization?.hostOrder ?? []
-            return (order.firstIndex(of: $0.id) ?? Int.max, $0.name.localizedLowercase)
-                < (order.firstIndex(of: $1.id) ?? Int.max, $1.name.localizedLowercase)
+                        + host.tags.joined(separator: " ")).localizedCaseInsensitiveContains(app.conexiones.query))
+        }.sorted { a, b in
+            let orden = app.configuration.settings.ordenConexiones
+            if orden == "nombre" { return a.name.localizedStandardCompare(b.name) == .orderedAscending }
+            let manual = app.configuration.organization?.hostOrder ?? []
+            let clave = { (host: HostProfile) in
+                (
+                    orden == "favoritos" && host.favorite ? 0 : 1,
+                    manual.firstIndex(of: host.id) ?? Int.max, host.name.localizedLowercase
+                )
+            }
+            return clave(a) < clave(b)
         }
     }
     var body: some View {
@@ -31,13 +32,13 @@ struct HostsView: View {
             HStack(spacing: 16) {
                 Text("Conexiones").font(Theme.title)
                 Spacer()
-                Picker("Vista", selection: $viewMode) {
+                Picker("Vista", selection: $app.conexiones.viewMode) {
                     Text("Filas").tag("rows")
                     Text("Diagrama").tag("map")
                 }.pickerStyle(.segmented).frame(width: 190)
                 Button {
                     var host = HostProfile()
-                    host.groupID = app.configuration.groups.first { $0.id == groupID }?.id
+                    host.groupID = app.configuration.groups.first { $0.id == app.conexiones.groupID }?.id
                     app.editingHost = host
                     app.hostEditor = true
                 } label: {
@@ -45,21 +46,31 @@ struct HostsView: View {
                 }.buttonStyle(PrimaryButtonStyle())
             }
             HStack(spacing: 12) {
-                CampoBusqueda(ayuda: "Buscar servidor o etiqueta", texto: $query)
+                CampoBusqueda(ayuda: "Buscar servidor o etiqueta", texto: $app.conexiones.query)
                     .frame(maxWidth: 300)
-                Picker("Etiqueta", selection: $tag) {
+                Picker("Etiqueta", selection: $app.conexiones.tag) {
                     Text("Todas").tag("")
                     ForEach(
                         Array(Set(app.configuration.hosts.flatMap(\.tags))).sorted(), id: \.self
                     ) { Text($0).tag($0) }
                 }.frame(maxWidth: 180)
                 Button {
-                    favoritesOnly.toggle()
+                    app.conexiones.favoritesOnly.toggle()
                 } label: {
-                    Image(systemName: favoritesOnly ? "star.fill" : "star")
-                }.buttonStyle(SecondaryButtonStyle(activo: favoritesOnly))
+                    Image(systemName: app.conexiones.favoritesOnly ? "star.fill" : "star")
+                }.buttonStyle(SecondaryButtonStyle(activo: app.conexiones.favoritesOnly))
                     .help("Solo favoritos").accessibilityLabel("Solo favoritos")
-                    .accessibilityAddTraits(favoritesOnly ? .isSelected : [])
+                    .accessibilityAddTraits(app.conexiones.favoritesOnly ? .isSelected : [])
+                Picker(
+                    "Orden",
+                    selection: Binding(
+                        get: { app.configuration.settings.ordenConexiones ?? "manual" },
+                        set: { guardarOrden($0 == "manual" ? nil : $0) })
+                ) {
+                    Text("Manual (arrastrar)").tag("manual")
+                    Text("Por nombre").tag("nombre")
+                    Text("Favoritos primero").tag("favoritos")
+                }.frame(maxWidth: 230)
                 Spacer()
                 Button {
                     groupsOpen = true
@@ -78,7 +89,7 @@ struct HostsView: View {
                 }.help("Exportar todo cifrado").accessibilityLabel("Exportar todo cifrado")
             }
             HSplitView {
-                ConnectionFolderTree(app: app, selection: groupID, selectGroup: selectFolder)
+                ConnectionFolderTree(app: app, selection: app.conexiones.groupID, selectGroup: selectFolder)
                     .frame(minWidth: 190, idealWidth: 230, maxWidth: 320)
                 VStack(alignment: .leading, spacing: 12) { results }
                     .padding(.leading, 14).frame(minWidth: 470)
@@ -92,24 +103,24 @@ struct HostsView: View {
             EmptyPanel(
                 title: app.connectionHosts.isEmpty
                     ? "Tu primera conexión"
-                    : (groupID.isEmpty ? "Sin coincidencias" : "Carpeta vacía"),
+                    : (app.conexiones.groupID.isEmpty ? "Sin coincidencias" : "Carpeta vacía"),
                 subtitle:
                     "Añade un servidor o importa tu configuración anterior. No se crean conexiones de ejemplo.",
                 icon: "server.rack")
-        } else if viewMode == "map" {
+        } else if app.conexiones.viewMode == "map" {
             Picker(
                 "Destino",
                 selection: Binding(
                     get: {
-                        filtered.contains(where: { $0.id == selectedHostID })
-                            ? selectedHostID : filtered.first?.id ?? ""
+                        filtered.contains(where: { $0.id == app.conexiones.selectedHostID })
+                            ? app.conexiones.selectedHostID : filtered.first?.id ?? ""
                     },
-                    set: { selectedHostID = $0 }
+                    set: { app.conexiones.selectedHostID = $0 }
                 )
             ) {
                 ForEach(filtered) { Text($0.name).tag($0.id) }
             }.frame(maxWidth: 420, alignment: .leading)
-            if let host = filtered.first(where: { $0.id == selectedHostID }) ?? filtered.first {
+            if let host = filtered.first(where: { $0.id == app.conexiones.selectedHostID }) ?? filtered.first {
                 ConnectionDiagramView(app: app, host: host).id(host.id)
             }
         } else {
@@ -120,35 +131,44 @@ struct HostsView: View {
     }
     private func openRequestedDiagram() {
         guard let id = app.diagramHostID else { return }
-        selectedHostID = id
-        viewMode = "map"
-        groupID = ""
-        query = ""
-        tag = ""
-        favoritesOnly = false
+        app.conexiones.selectedHostID = id
+        app.conexiones.viewMode = "map"
+        app.conexiones.groupID = ""
+        app.conexiones.query = ""
+        app.conexiones.tag = ""
+        app.conexiones.favoritesOnly = false
         app.diagramHostID = nil
     }
     private func belongsToSelectedGroup(_ host: HostProfile) -> Bool {
-        if groupID.isEmpty { return true }
-        if groupID == "ungrouped" { return host.groupID == nil }
-        let ids = ConnectionOrganizer.descendantGroupIDs(of: groupID, in: app.configuration)
+        if app.conexiones.groupID.isEmpty { return true }
+        if app.conexiones.groupID == "ungrouped" { return host.groupID == nil }
+        let ids = ConnectionOrganizer.descendantGroupIDs(of: app.conexiones.groupID, in: app.configuration)
         return host.groupID.map(ids.contains) ?? false
     }
     private func selectFolder(_ id: String) {
-        groupID = id
-        query = ""
-        tag = ""
-        favoritesOnly = false
-        viewMode = "rows"
-        selectedHostID = ""
+        app.conexiones.groupID = id
+        app.conexiones.query = ""
+        app.conexiones.tag = ""
+        app.conexiones.favoritesOnly = false
+        app.conexiones.viewMode = "rows"
+        app.conexiones.selectedHostID = ""
     }
     private func move(_ hostID: String, to groupID: String?, before targetID: String? = nil) {
         Task {
             do {
                 try await app.save {
                     try ConnectionOrganizer.moveHost(hostID, to: groupID, before: targetID, in: &$0)
+                    // Arrastrar es ordenar a mano: por nombre no se vería el cambio
+                    if $0.settings.ordenConexiones == "nombre" { $0.settings.ordenConexiones = nil }
                 }
             } catch { app.report(error) }
+        }
+    }
+    private func guardarOrden(_ orden: String?) {
+        Task {
+            do { try await app.save { $0.settings.ordenConexiones = orden } } catch {
+                app.report(error)
+            }
         }
     }
 
@@ -223,6 +243,8 @@ struct HostEditor: View {
     @State private var saving = false
     @State private var password = ""
     @State private var hasPassword = false
+    @State private var pestana = "conexion"
+    @Environment(\.sectionPalette) private var palette
     private var isJump: Bool { host.isJumpProfile == true }
     init(app: AppContainer, initial: HostProfile?) {
         self.app = app
@@ -236,159 +258,23 @@ struct HostEditor: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(isJump ? "Máquina de salto" : "Perfil SSH").font(.title2.bold())
-            TabView {
-                Form {
-                    TextField("Nombre", text: $host.name).accessibilityIdentifier("host-name")
-                    TextField("Host, IP o alias SSH", text: $host.address).accessibilityIdentifier(
-                        "host-address")
-                    TextField("Puerto (vacío: configuración SSH)", text: $portText)
-                    TextField("Usuario (vacío: configuración SSH)", text: $host.username)
-                    Picker("Autenticación", selection: $host.authentication) {
-                        Text("Configuración OpenSSH").tag(Authentication.configuration)
-                        Text("ssh-agent").tag(Authentication.agent)
-                        Text("Clave privada").tag(Authentication.key)
-                        Text("Interactiva / contraseña").tag(Authentication.interactive)
+            cabecera
+            Picker("Sección", selection: $pestana) {
+                Text("Conexión").tag("conexion")
+                if !isJump { Text("Saltos").tag("saltos") }
+                Text("Organizar").tag("organizar")
+            }.pickerStyle(.segmented).labelsHidden()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    switch pestana {
+                    case "saltos": saltos
+                    case "organizar": organizar
+                    default: conexion
                     }
-                    if host.authentication == .interactive || host.authentication == .configuration
-                    {
-                        SecureField(
-                            hasPassword ? "Nueva contraseña (vacío: conservar)" : "Contraseña",
-                            text: $password)
-                        if hasPassword {
-                            Label(
-                                "Contraseña guardada en el almacén propio", systemImage: "lock.fill"
-                            )
-                            .font(.caption).foregroundStyle(Theme.secondary)
-                        }
-                    }
-                    HStack {
-                        TextField("Ruta de clave (opcional)", text: $host.identityPath)
-                        Button("Elegir…") {
-                            let panel = NSOpenPanel()
-                            panel.canChooseDirectories = false
-                            if panel.runModal() == .OK, let url = panel.url {
-                                host.identityPath = url.path
-                            }
-                        }
-                    }
-                    Toggle(
-                        "Usar configuración OpenSSH local de confianza",
-                        isOn: $connection.useSSHConfig)
-                    TextField(
-                        "known_hosts opcional (vacío: OpenSSH del usuario)",
-                        text: Binding(
-                            get: { connection.knownHostsPath ?? "" },
-                            set: { connection.knownHostsPath = $0.isEmpty ? nil : $0 }))
-                    Text(
-                        "OpenSSH interpreta Include, Match y ProxyCommand. Match exec puede ejecutar comandos locales, incluso al resolver la configuración. No se modifica ~/.ssh/config."
-                    )
-                    .font(.caption).foregroundStyle(Theme.secondary)
-                    Stepper(
-                        "Timeout: \(connection.timeout) s", value: $connection.timeout, in: 1...120)
-                    Stepper(
-                        "Keepalive: \(connection.keepalive) s", value: $connection.keepalive,
-                        in: 5...300, step: 5)
-                    Toggle(
-                        "Reconectar tras pérdida de transporte", isOn: $connection.reconnect.enabled
-                    )
-                    Toggle(
-                        "Compatibilidad legacy explícita (group14-sha1 / ssh-rsa)",
-                        isOn: $connection.legacyAlgorithms)
-                }.formStyle(.grouped).tabItem { Label("Conexión", systemImage: "terminal") }
-                if !isJump {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text(
-                                "Selecciona las máquinas configuradas en Túneles, en orden desde el Mac. Los cambios del salto se aplican a todas las conexiones que lo utilizan."
-                            ).font(.callout).foregroundStyle(Theme.secondary)
-                            ForEach($connection.route.hops) { $hop in
-                                GroupBox {
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        Picker(
-                                            "Bastión",
-                                            selection: Binding(
-                                                get: { hop.hostID ?? "" },
-                                                set: { hop.hostID = $0.isEmpty ? nil : $0 })
-                                        ) {
-                                            if hop.hostID == nil { Text("Salto heredado").tag("") }
-                                            if let ref = hop.hostID,
-                                                !app.configuration.jumpHosts.contains(where: {
-                                                    $0.id == ref
-                                                })
-                                            {
-                                                Text(
-                                                    app.configuration.host(ref)?.name
-                                                        ?? "Referencia heredada"
-                                                ).tag(ref)
-                                            }
-                                            ForEach(
-                                                app.configuration.jumpHosts.filter {
-                                                    $0.id != host.id
-                                                }
-                                            ) { Text($0.name).tag($0.id) }
-                                        }
-                                        if hop.hostID == nil {
-                                            Text("\(hop.name) · \(hop.address)").font(.caption)
-                                        }
-                                        HStack {
-                                            Button("Subir") { move(hop.id, -1) }
-                                            Button("Bajar") { move(hop.id, 1) }
-                                            Spacer()
-                                            Button("Quitar", role: .destructive) {
-                                                connection.route.hops.removeAll { $0.id == hop.id }
-                                            }
-                                        }
-                                    }.padding(8)
-                                }
-                            }
-                            HStack {
-                                Menu("Añadir salto") {
-                                    ForEach(app.configuration.jumpHosts.filter { $0.id != host.id })
-                                    { jump in
-                                        Button(jump.name) {
-                                            var hop = JumpHop()
-                                            hop.hostID = jump.id
-                                            connection.route.hops.append(hop)
-                                        }
-                                    }
-                                }.fixedSize().disabled(app.configuration.jumpHosts.isEmpty)
-                                Button("Configurar en Túneles") {
-                                    dismiss()
-                                    app.section = .tunnels
-                                }
-                            }
-                        }.padding(18)
-                    }.tabItem { Label("Saltos", systemImage: "arrow.triangle.branch") }
-                }
-                Form {
-                    if !isJump {
-                        Picker(
-                            "Carpeta",
-                            selection: Binding(
-                                get: { host.groupID ?? "" },
-                                set: { host.groupID = $0.isEmpty ? nil : $0 })
-                        ) {
-                            Text("Sin carpeta").tag("")
-                            ForEach(app.configuration.groups) { Text($0.name).tag($0.id) }
-                        }
-                    }
-                    TextField("Etiquetas (separadas por comas)", text: $tagText)
-                    Toggle("Favorito", isOn: $host.favorite)
-                    Picker("Color", selection: $host.color) {
-                        ForEach(
-                            ["blue", "green", "purple", "orange", "red", "cyan", "pink", "yellow"],
-                            id: \.self
-                        ) { Text($0).tag($0) }
-                    }
-                    TextField("Icono SF Symbol", text: $host.icon)
-                    Text("Notas sin secretos").font(.caption)
-                    TextEditor(text: $host.notes).frame(minHeight: 80).overlay(
-                        RoundedRectangle(cornerRadius: 5).stroke(.secondary.opacity(0.3)))
-                }.formStyle(.grouped).tabItem { Label("Organizar", systemImage: "folder") }
-            }.frame(height: 470)
+                }.padding(.vertical, 4).padding(.trailing, 6).toggleStyle(.switch)
+            }.frame(height: 440)
             if let error {
-                Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                Text(error).font(.callout).foregroundStyle(Theme.error).textSelection(.enabled)
             }
             HStack {
                 Button("Cancelar") { dismiss() }.keyboardShortcut(.cancelAction).disabled(saving)
@@ -399,13 +285,184 @@ struct HostEditor: View {
                     .defaultAction
                 ).buttonStyle(PrimaryButtonStyle(compact: true)).disabled(saving)
             }
-        }.padding(24).frame(width: 660).interactiveDismissDisabled(saving)
+        }.padding(24).frame(width: 660).foregroundStyle(Theme.text)
+            .background { FondoSeccion(palette: palette) }
+            .interactiveDismissDisabled(saving)
             .task {
                 if let store = app.passwordStore {
                     hasPassword =
                         (try? store.password(for: SSHPasswordReference(host: host))) != nil
                 }
             }
+    }
+    // Icono y color del perfil en vivo, para ver cómo quedará en la lista
+    private var cabecera: some View {
+        HStack(spacing: 14) {
+            Image(systemName: isJump ? "arrow.triangle.branch" : Theme.profileIcon(host.icon))
+                .font(.system(size: 22)).foregroundStyle(Theme.profileColor(host.color))
+                .frame(width: 50, height: 50)
+                .background(
+                    Theme.profileColor(host.color).opacity(0.16),
+                    in: RoundedRectangle(cornerRadius: 13))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(isJump ? "Máquina de salto" : "Perfil SSH").font(.title2.bold())
+                Text(host.name.isEmpty ? "Nueva conexión" : host.name).font(.callout)
+                    .foregroundStyle(Theme.secondary).lineLimit(1)
+            }
+        }
+    }
+    @ViewBuilder private var conexion: some View {
+        CampoFormulario(titulo: "Nombre") {
+            CampoTexto(ayuda: "Ej. Base de datos producción", texto: $host.name)
+                .accessibilityIdentifier("host-name")
+        }
+        HStack(alignment: .top, spacing: 12) {
+            CampoFormulario(titulo: "Host, IP o alias SSH") {
+                CampoTexto(ayuda: "10.0.0.5 o alias de ~/.ssh/config", texto: $host.address)
+                    .accessibilityIdentifier("host-address")
+            }
+            CampoFormulario(titulo: "Puerto") { CampoTexto(ayuda: "22", texto: $portText) }
+                .frame(width: 110)
+        }
+        CampoFormulario(titulo: "Usuario") {
+            CampoTexto(ayuda: "Vacío: el de la configuración SSH", texto: $host.username)
+        }
+        CampoFormulario(titulo: "Autenticación", caja: false) {
+            Picker("Autenticación", selection: $host.authentication) {
+                Text("OpenSSH").tag(Authentication.configuration)
+                Text("ssh-agent").tag(Authentication.agent)
+                Text("Clave privada").tag(Authentication.key)
+                Text("Contraseña").tag(Authentication.interactive)
+            }.pickerStyle(.segmented).labelsHidden()
+        }
+        if host.authentication == .interactive || host.authentication == .configuration {
+            CampoFormulario(titulo: "Contraseña") {
+                CampoTexto(
+                    ayuda: hasPassword ? "Nueva contraseña (vacío: conservar)" : "Contraseña",
+                    texto: $password, secreto: true)
+            }
+            if hasPassword {
+                Label("Contraseña guardada en el almacén propio", systemImage: "lock.fill")
+                    .font(.caption).foregroundStyle(Theme.secondary)
+            }
+        }
+        CampoFormulario(titulo: "Clave privada (opcional)") {
+            HStack {
+                CampoTexto(ayuda: "~/.ssh/id_ed25519", texto: $host.identityPath)
+                Button("Elegir…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = false
+                    if panel.runModal() == .OK, let url = panel.url {
+                        host.identityPath = url.path
+                    }
+                }
+            }
+        }
+        Text("Avanzado").font(Theme.section).padding(.top, 8)
+        Toggle(
+            "Usar configuración OpenSSH local de confianza", isOn: $connection.useSSHConfig)
+        CampoFormulario(titulo: "known_hosts (opcional)") {
+            CampoTexto(
+                ayuda: "Vacío: el de OpenSSH del usuario",
+                texto: Binding(
+                    get: { connection.knownHostsPath ?? "" },
+                    set: { connection.knownHostsPath = $0.isEmpty ? nil : $0 }))
+        }
+        Text(
+            "OpenSSH interpreta Include, Match y ProxyCommand. Match exec puede ejecutar comandos locales, incluso al resolver la configuración. No se modifica ~/.ssh/config."
+        )
+        .font(.caption).foregroundStyle(Theme.secondary)
+        HStack(spacing: 24) {
+            Stepper("Timeout: \(connection.timeout) s", value: $connection.timeout, in: 1...120)
+            Stepper(
+                "Keepalive: \(connection.keepalive) s", value: $connection.keepalive,
+                in: 5...300, step: 5)
+        }
+        Toggle("Reconectar tras pérdida de transporte", isOn: $connection.reconnect.enabled)
+        Toggle(
+            "Compatibilidad legacy explícita (group14-sha1 / ssh-rsa)",
+            isOn: $connection.legacyAlgorithms)
+    }
+    @ViewBuilder private var saltos: some View {
+        Text(
+            "Selecciona las máquinas configuradas en Túneles, en orden desde el Mac. Los cambios del salto se aplican a todas las conexiones que lo utilizan."
+        ).font(.callout).foregroundStyle(Theme.secondary)
+        ForEach($connection.route.hops) { $hop in
+            VStack(alignment: .leading, spacing: 10) {
+                Picker(
+                    "Bastión",
+                    selection: Binding(
+                        get: { hop.hostID ?? "" },
+                        set: { hop.hostID = $0.isEmpty ? nil : $0 })
+                ) {
+                    if hop.hostID == nil { Text("Salto heredado").tag("") }
+                    if let ref = hop.hostID,
+                        !app.configuration.jumpHosts.contains(where: { $0.id == ref })
+                    {
+                        Text(app.configuration.host(ref)?.name ?? "Referencia heredada").tag(ref)
+                    }
+                    ForEach(app.configuration.jumpHosts.filter { $0.id != host.id }) {
+                        Text($0.name).tag($0.id)
+                    }
+                }
+                if hop.hostID == nil {
+                    Text("\(hop.name) · \(hop.address)").font(.caption)
+                }
+                HStack {
+                    Button("Subir") { move(hop.id, -1) }
+                    Button("Bajar") { move(hop.id, 1) }
+                    Spacer()
+                    Button("Quitar", role: .destructive) {
+                        connection.route.hops.removeAll { $0.id == hop.id }
+                    }
+                }
+            }.padding(14).background(palette.surface, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.border.opacity(0.6)))
+        }
+        HStack {
+            Menu("Añadir salto") {
+                ForEach(app.configuration.jumpHosts.filter { $0.id != host.id }) { jump in
+                    Button(jump.name) {
+                        var hop = JumpHop()
+                        hop.hostID = jump.id
+                        connection.route.hops.append(hop)
+                    }
+                }
+            }.menuStyle(.borderlessButton).pointerStyle(.link).fixedSize()
+                .foregroundStyle(Theme.text).capsulaControl()
+                .disabled(app.configuration.jumpHosts.isEmpty)
+            Button("Configurar en Túneles") {
+                dismiss()
+                app.section = .tunnels
+            }
+        }
+    }
+    @ViewBuilder private var organizar: some View {
+        if !isJump {
+            CampoFormulario(titulo: "Carpeta", caja: false) {
+                Picker(
+                    "Carpeta",
+                    selection: Binding(
+                        get: { host.groupID ?? "" },
+                        set: { host.groupID = $0.isEmpty ? nil : $0 })
+                ) {
+                    Text("Sin carpeta").tag("")
+                    ForEach(app.configuration.groups) { Text($0.name).tag($0.id) }
+                }.labelsHidden().fixedSize()
+            }
+        }
+        CampoFormulario(titulo: "Etiquetas") {
+            CampoTexto(ayuda: "Separadas por comas: prod, bbdd", texto: $tagText)
+        }
+        Toggle("Favorito", isOn: $host.favorite)
+        CampoFormulario(titulo: "Color", caja: false) { SelectorColor(color: $host.color) }
+        CampoFormulario(titulo: "Icono", caja: false) {
+            SelectorIcono(icono: $host.icon, color: Theme.profileColor(host.color))
+        }
+        CampoFormulario(titulo: "Notas sin secretos") {
+            TextEditor(text: $host.notes).scrollContentBackground(.hidden)
+                .font(.callout).frame(minHeight: 80)
+        }
     }
     private func move(_ id: String, _ delta: Int) {
         guard let index = connection.route.hops.firstIndex(where: { $0.id == id }),

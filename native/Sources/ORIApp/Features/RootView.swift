@@ -1,12 +1,15 @@
 import ORICore
 import SwiftUI
 
+private let ANCHO_BARRA_LATERAL: CGFloat = 220
+
 struct RootView: View {
     @Bindable var app: AppContainer
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let palette = SectionPalette.graphite
     var body: some View {
-        NavigationSplitView {
+        // Barra lateral y contenido sobre el mismo fondo, separados por una línea fina
+        HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 24) {
                 HStack(spacing: 12) {
                     Image(systemName: "terminal.fill").font(.system(size: 24, weight: .bold))
@@ -45,14 +48,8 @@ struct RootView: View {
                         Text("OpenSSH · macOS").font(.caption).foregroundStyle(Theme.secondary)
                     }
                 }.padding(20)
-            }.background {
-                LinearGradient(
-                    colors: [palette.background, palette.sombra], startPoint: .top,
-                    endPoint: .bottom
-                ).ignoresSafeArea()
-            }.navigationSplitViewColumnWidth(
-                min: 200, ideal: 220, max: 270)
-        } detail: {
+            }.frame(width: ANCHO_BARRA_LATERAL)
+            LineaDivisoria()
             VStack(spacing: 0) {
                 if let startupError = app.startupError {
                     EmptyPanel(
@@ -79,9 +76,9 @@ struct RootView: View {
                     }.padding(14).foregroundStyle(app.messageIsError ? Theme.error : Theme.blue)
                         .background(palette.surface).overlay(alignment: .top) { Divider() }
                 }
-            }.background { FondoSeccion(palette: palette) }.foregroundStyle(Theme.text)
-
+            }.foregroundStyle(Theme.text)
         }
+        .background { FondoSeccion(palette: palette) }
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .tint(palette.accent)
         // Los degradados solo funcionan con texto claro: tema oscuro siempre
@@ -164,6 +161,10 @@ struct DashboardView: View {
                     .font(.system(size: 15))
                     .onSubmit { if let primero = coincidencias.first { conectar(primero) } }
                 if !query.isEmpty { resultados }
+                if IvantiVPN.instalado {
+                    encabezado("VPN")
+                    Card { PanelIvanti() }
+                }
                 encabezado("Abierto ahora")
                 abiertoAhora
                 if !app.scriptsFavoritos.isEmpty {

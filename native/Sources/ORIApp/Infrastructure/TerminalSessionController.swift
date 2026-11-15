@@ -67,6 +67,7 @@ final class TerminalSessionController: NSObject, Identifiable, LocalProcessTermi
     private var intentional = false
     private var authenticated = false
     private var ready = false
+    private var destino: String?
     private var generation = UUID()
     private var attempt = 0
     private let root: URL
@@ -128,6 +129,7 @@ final class TerminalSessionController: NSObject, Identifiable, LocalProcessTermi
         intentional = false
         authenticated = false
         ready = false
+        destino = nil
         generation = UUID()
         model.state = attempt > 0 ? .reconnecting : .connecting
         model.diagnostic = nil
@@ -205,6 +207,7 @@ final class TerminalSessionController: NSObject, Identifiable, LocalProcessTermi
             case .authenticated: authenticated = true
             case .sessionReady: ready = true
             case .failure(let error): model.diagnostic = error
+            case .destino(let texto): destino = texto
             default: break
             }
         }
@@ -214,8 +217,15 @@ final class TerminalSessionController: NSObject, Identifiable, LocalProcessTermi
             eventHandler?(
                 AuditEvent(
                     hostID: host.id,
-                    message: "Sesión SSH autenticada y canal interactivo preparado."))
+                    message: "Sesión SSH abierta: \(destino ?? host.address)\(rutaSaltos)"))
         }
+    }
+    // Nombres de los saltos en orden desde el Mac, para el registro
+    private var rutaSaltos: String {
+        let nombres = connection.route.hops.map { hop in
+            hop.hostID.flatMap { configuration.host($0)?.name } ?? hop.name
+        }
+        return nombres.isEmpty ? "" : " · vía " + nombres.joined(separator: " → ")
     }
     func disconnect() async {
         intentional = true
@@ -266,7 +276,10 @@ final class TerminalSessionController: NSObject, Identifiable, LocalProcessTermi
             self.model.endedAt = Date()
             if self.intentional || exitCode == 0 || self.local {
                 self.model.state = .disconnected
-                self.eventHandler?(AuditEvent(hostID: self.host.id, message: "Sesión SSH cerrada."))
+                self.eventHandler?(
+                    AuditEvent(
+                        hostID: self.host.id,
+                        message: "Sesión SSH cerrada: \(self.destino ?? self.host.address)"))
                 return
             }
             self.model.state = .failed
