@@ -39,6 +39,14 @@ sesiones-ssh*.csv
 # Artefactos de debug de Playwright MCP
 .playwright-mcp/
 
+# Aplicación nativa y artefactos locales
+native/.build/
+native/.swiftpm/
+native/.cache/
+native/build/
+*.xcuserstate
+xcuserdata/
+
 # Datos internos con credenciales reales
 globals.py
 sesiones-ssh*.csv

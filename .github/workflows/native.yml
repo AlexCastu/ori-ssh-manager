@@ -1,0 +1,19 @@
+name: Native macOS
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  native:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Swift toolchain
+        run: swift --version
+      - name: Build native application
+        run: bash native/scripts/build.sh release
+      - name: Unit and PTY tests
+        run: swift test --package-path native --cache-path native/.cache
+      - name: Verify bundle signature
+        run: codesign --verify --deep --strict native/build/ORI.app
