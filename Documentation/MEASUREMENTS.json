@@ -1,0 +1,12 @@
+{
+  "cpuSeconds" : 0.303365,
+  "elapsedSeconds" : 1.4037489891052246,
+  "environment" : "Swift Testing process, five real cat PTYs, no visible app window",
+  "fileDescriptorsActive" : 42,
+  "fileDescriptorsAfter" : 12,
+  "fileDescriptorsBefore" : 12,
+  "inputLines" : 2500,
+  "measuredAt" : "2026-11-14T22:54:26Z",
+  "peakProcessRSSBytes" : 68665344,
+  "terminals" : 5
+}
